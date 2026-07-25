@@ -20,8 +20,29 @@ import (
 	"github.com/vrypan/robby/internal/carutil"
 	"github.com/vrypan/robby/internal/firehose"
 	"github.com/vrypan/robby/internal/plc"
+	"github.com/vrypan/robby/internal/repoops"
 	"github.com/vrypan/robby/internal/store"
 )
+
+// defaultSeedRecords are the app-level records robby writes into a brand-new
+// account's initial commit. Bluesky creates these during signup and its
+// client expects them to exist — e.g. the "activity subscriptions" settings
+// screen fails to load without app.bsky.notification.declaration — so seeding
+// sensible defaults keeps a robby-hosted account working out of the box. The
+// declaration default ("followers") matches the lexicon's stated default for
+// an absent record. Migration-in accounts are not seeded: they import their
+// own repo, which already carries the user's real records.
+func defaultSeedRecords() []repoops.WriteOp {
+	return []repoops.WriteOp{{
+		Action:     repoops.ActionCreate,
+		Collection: "app.bsky.notification.declaration",
+		RKey:       "self",
+		Record: map[string]any{
+			"$type":              "app.bsky.notification.declaration",
+			"allowSubscriptions": "followers",
+		},
+	}}
+}
 
 // requireAdmin wraps a handler with HTTP Basic auth against the
 // configured admin password. Username is ignored.
@@ -116,10 +137,11 @@ func (s *Server) handleAdminCreateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Give the account a real (empty) initial repo/commit, so sync
-	// endpoints and the firehose have something to describe from the
-	// start. ApplyWrites (via writer.Seq) also emits the #commit event.
-	commit, commitCID, _, err := s.writer.ApplyWrites(r.Context(), did, signingPriv, nil)
+	// Give the account a real initial repo/commit seeded with the default
+	// app-level records (see defaultSeedRecords), so sync endpoints and the
+	// firehose have something to describe from the start and clients find the
+	// records they expect. ApplyWrites (via writer.Seq) also emits #commit.
+	commit, commitCID, _, err := s.writer.ApplyWrites(r.Context(), did, signingPriv, defaultSeedRecords())
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to initialize repo: "+err.Error())
 		return
