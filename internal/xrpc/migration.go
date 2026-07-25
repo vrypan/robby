@@ -40,6 +40,27 @@ func (s *Server) handleReserveSigningKey(w http.ResponseWriter, r *http.Request)
 	var in reserveSigningKeyInput
 	_ = decodeJSON(r, &in) // body is optional
 
+	if in.DID != "" {
+		if _, err := syntax.ParseDID(in.DID); err != nil {
+			writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid did")
+			return
+		}
+		if existing, err := s.store.GetReservedSigningKey(r.Context(), in.DID); err == nil {
+			priv, err := atcrypto.ParsePrivateMultibase(existing)
+			if err != nil {
+				writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "invalid reserved signing key")
+				return
+			}
+			pub, err := priv.PublicKey()
+			if err != nil {
+				writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to derive signing key")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"signingKey": pub.DIDKey()})
+			return
+		}
+	}
+
 	priv, err := atcrypto.GeneratePrivateKeyK256()
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to generate signing key")

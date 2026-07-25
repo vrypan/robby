@@ -2,6 +2,7 @@ package actorstore
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -68,6 +69,32 @@ func (m *Manager) Get(did string) (*Store, error) {
 	s, err := Open(m.actorDBPath(did), m.actorBlobDir(did), did)
 	if err != nil {
 		return nil, fmt.Errorf("opening actor store for %s: %w", did, err)
+	}
+	m.stores[did] = s
+	return s, nil
+}
+
+// GetExisting opens an actor store only when both of its on-disk components
+// already exist. It is for public read paths: unlike Get, it never allocates
+// a database, blob directory, or cache entry for a caller-supplied DID.
+func (m *Manager) GetExisting(did string) (*Store, error) {
+	if err := validDID(did); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.stores[did]; ok {
+		return s, nil
+	}
+	if _, err := os.Stat(m.actorDBPath(did)); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(m.actorBlobDir(did)); err != nil {
+		return nil, err
+	}
+	s, err := Open(m.actorDBPath(did), m.actorBlobDir(did), did)
+	if err != nil {
+		return nil, fmt.Errorf("opening existing actor store for %s: %w", did, err)
 	}
 	m.stores[did] = s
 	return s, nil

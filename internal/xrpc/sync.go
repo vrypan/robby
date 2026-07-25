@@ -7,6 +7,7 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 
+	"github.com/vrypan/pds-light/internal/actorstore"
 	"github.com/vrypan/pds-light/internal/carutil"
 	"github.com/vrypan/pds-light/internal/store"
 )
@@ -17,13 +18,20 @@ func writeCARResponse(w http.ResponseWriter, roots []cid.Cid, blks []blocks.Bloc
 	_ = carutil.WriteCAR(w, roots, blks)
 }
 
+func (s *Server) hostedActorStore(r *http.Request, did string) (*actorstore.Store, error) {
+	if _, err := s.store.GetAccountByDID(r.Context(), did); err != nil {
+		return nil, err
+	}
+	return s.actors.GetExisting(did)
+}
+
 func (s *Server) handleSyncGetRepo(w http.ResponseWriter, r *http.Request) {
 	did := r.URL.Query().Get("did")
 	if did == "" {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did is required")
 		return
 	}
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -59,7 +67,7 @@ func (s *Server) handleSyncGetRepoStatus(w http.ResponseWriter, r *http.Request)
 	if acct.Status != store.StatusActive {
 		out["status"] = acct.Status
 	}
-	if st, err := s.actors.Get(did); err == nil {
+	if st, err := s.hostedActorStore(r, did); err == nil {
 		if root, err := st.GetRepoRoot(r.Context()); err == nil {
 			out["rev"] = root.Rev
 		}
@@ -73,7 +81,7 @@ func (s *Server) handleSyncGetLatestCommit(w http.ResponseWriter, r *http.Reques
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did is required")
 		return
 	}
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -96,7 +104,7 @@ func (s *Server) handleSyncGetRecord(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did, collection, and rkey are required")
 		return
 	}
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -126,7 +134,7 @@ func (s *Server) handleSyncGetBlocks(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did and cids are required")
 		return
 	}
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -165,7 +173,7 @@ func (s *Server) handleSyncListBlobs(w http.ResponseWriter, r *http.Request) {
 	}
 	cursor := q.Get("cursor")
 
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -202,7 +210,7 @@ func (s *Server) handleSyncGetBlob(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid cid")
 		return
 	}
-	st, err := s.actors.Get(did)
+	st, err := s.hostedActorStore(r, did)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 		return
@@ -243,7 +251,7 @@ func (s *Server) handleSyncListRepos(w http.ResponseWriter, r *http.Request) {
 		if cursor != "" && a.DID <= cursor {
 			continue
 		}
-		st, err := s.actors.Get(a.DID)
+		st, err := s.actors.GetExisting(a.DID)
 		if err != nil {
 			continue
 		}

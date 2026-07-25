@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS app_passwords (
 CREATE TABLE IF NOT EXISTS reserved_signing_keys (
 	did        TEXT PRIMARY KEY,
 	signing_key TEXT NOT NULL,
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS admin_tokens (
@@ -135,10 +136,14 @@ CREATE TABLE IF NOT EXISTS admin_tokens (
 		"ALTER TABLE refresh_tokens ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE refresh_tokens ADD COLUMN credential_kind TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE refresh_tokens ADD COLUMN app_password_name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE reserved_signing_keys ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''",
 	} {
 		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("migrating auth schema: %w", err)
 		}
+	}
+	if _, err := s.db.Exec(`DELETE FROM reserved_signing_keys WHERE expires_at = ''`); err != nil {
+		return fmt.Errorf("invalidating legacy signing key reservations: %w", err)
 	}
 	return nil
 }
@@ -419,10 +424,14 @@ func checkRowsAffected(res sql.Result) error {
 // createAccount call for the same did can reuse it — keeping the
 // did:key stable across both calls, which migration flows depend on.
 func (s *Store) ReserveSigningKey(ctx context.Context, did, signingKey string) error {
+	now := time.Now().UTC()
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM reserved_signing_keys WHERE expires_at != '' AND expires_at <= ?`, now.Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("cleaning expired signing key reservations: %w", err)
+	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO reserved_signing_keys (did, signing_key, created_at) VALUES (?, ?, ?)
-ON CONFLICT (did) DO UPDATE SET signing_key = excluded.signing_key`,
-		did, signingKey, time.Now().UTC().Format(time.RFC3339))
+INSERT INTO reserved_signing_keys (did, signing_key, created_at, expires_at) VALUES (?, ?, ?, ?)
+	ON CONFLICT (did) DO NOTHING`,
+		did, signingKey, now.Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("reserving signing key: %w", err)
 	}
@@ -432,7 +441,7 @@ ON CONFLICT (did) DO UPDATE SET signing_key = excluded.signing_key`,
 // GetReservedSigningKey returns the previously-reserved key for did, if
 // any.
 func (s *Store) GetReservedSigningKey(ctx context.Context, did string) (string, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT signing_key FROM reserved_signing_keys WHERE did = ?`, did)
+	row := s.db.QueryRowContext(ctx, `SELECT signing_key FROM reserved_signing_keys WHERE did = ? AND expires_at > ?`, did, time.Now().UTC().Format(time.RFC3339))
 	var key string
 	if err := row.Scan(&key); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
