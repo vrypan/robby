@@ -154,15 +154,16 @@ func (s *Server) handleServerCreateAccount(w http.ResponseWriter, r *http.Reques
 		RotationKey:  rotationPriv.Multibase(),
 		// Deactivated until repo + identity migration finish and the
 		// client calls server.activateAccount.
-		Status:    store.StatusDeactivated,
-		CreatedAt: time.Now(),
+		Status:      store.StatusDeactivated,
+		AuthVersion: 1,
+		CreatedAt:   time.Now(),
 	}
 	if err := s.store.CreateAccount(r.Context(), acct); err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to store account: "+err.Error())
 		return
 	}
 
-	s.issueSession(w, &acct)
+	s.issueSession(w, &acct, auth.Credential{Kind: auth.CredentialPrimary})
 }
 
 // --- repo.importRepo -------------------------------------------------------
@@ -175,7 +176,7 @@ const maxImportSize = 500 << 20 // 500 MiB
 // account's *currently published* identity, since at this point in a
 // migration the DID doc still names the old PDS's signing key.
 func (s *Server) handleImportRepo(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requireMigrationAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -309,7 +310,7 @@ func (s *Server) handleImportRepo(w http.ResponseWriter, r *http.Request) {
 // --- repo.listMissingBlobs -------------------------------------------------
 
 func (s *Server) handleListMissingBlobs(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requireMigrationAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -357,7 +358,7 @@ func (s *Server) handleListMissingBlobs(w http.ResponseWriter, r *http.Request) 
 // --- server.activateAccount / deactivateAccount / deleteAccount ----------
 
 func (s *Server) handleActivateAccount(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requireMigrationAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -386,7 +387,7 @@ type deactivateAccountInput struct {
 }
 
 func (s *Server) handleDeactivateAccountSelf(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -417,7 +418,7 @@ type deleteAccountInput struct {
 // flow) — the admin-CLI-confirmation replacement for the email-gated
 // requestAccountDelete flow.
 func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
-	callerDID, ok := s.requireAccessToken(w, r)
+	callerDID, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -27,14 +28,18 @@ type Account struct {
 	SigningKey   string // multibase-encoded private key
 	RotationKey  string // multibase-encoded private key
 	Status       string
+	AuthVersion  int64
 	CreatedAt    time.Time
 }
 
 type RefreshToken struct {
-	TokenHash string // sha256 hex of the token value
-	DID       string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	TokenHash       string // sha256 hex of the token value
+	DID             string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	AuthVersion     int64
+	CredentialKind  string
+	AppPasswordName string
 }
 
 type AppPassword struct {
@@ -83,6 +88,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 	signing_key   TEXT NOT NULL,
 	rotation_key  TEXT NOT NULL,
 	status        TEXT NOT NULL,
+	auth_version  INTEGER NOT NULL DEFAULT 1,
 	created_at    TEXT NOT NULL
 );
 
@@ -90,7 +96,10 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 	token_hash TEXT PRIMARY KEY,
 	did        TEXT NOT NULL,
 	expires_at TEXT NOT NULL,
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	auth_version INTEGER NOT NULL DEFAULT 0,
+	credential_kind TEXT NOT NULL DEFAULT '',
+	app_password_name TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_did ON refresh_tokens(did);
@@ -121,14 +130,24 @@ CREATE TABLE IF NOT EXISTS admin_tokens (
 	if err != nil {
 		return fmt.Errorf("migrating accounts db: %w", err)
 	}
+	for _, stmt := range []string{
+		"ALTER TABLE accounts ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1",
+		"ALTER TABLE refresh_tokens ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE refresh_tokens ADD COLUMN credential_kind TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE refresh_tokens ADD COLUMN app_password_name TEXT NOT NULL DEFAULT ''",
+	} {
+		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("migrating auth schema: %w", err)
+		}
+	}
 	return nil
 }
 
 func (s *Store) CreateAccount(ctx context.Context, a Account) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO accounts (did, handle, password_hash, signing_key, rotation_key, status, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		a.DID, a.Handle, a.PasswordHash, a.SigningKey, a.RotationKey, a.Status, a.CreatedAt.UTC().Format(time.RFC3339))
+INSERT INTO accounts (did, handle, password_hash, signing_key, rotation_key, status, auth_version, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.DID, a.Handle, a.PasswordHash, a.SigningKey, a.RotationKey, a.Status, maxAuthVersion(a.AuthVersion), a.CreatedAt.UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("creating account: %w", err)
 	}
@@ -137,14 +156,14 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 
 func (s *Store) GetAccountByDID(ctx context.Context, did string) (*Account, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT did, handle, password_hash, signing_key, rotation_key, status, created_at
+SELECT did, handle, password_hash, signing_key, rotation_key, status, auth_version, created_at
 FROM accounts WHERE did = ?`, did)
 	return scanAccount(row)
 }
 
 func (s *Store) GetAccountByHandle(ctx context.Context, handle string) (*Account, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT did, handle, password_hash, signing_key, rotation_key, status, created_at
+SELECT did, handle, password_hash, signing_key, rotation_key, status, auth_version, created_at
 FROM accounts WHERE handle = ?`, handle)
 	return scanAccount(row)
 }
@@ -160,7 +179,7 @@ func (s *Store) GetAccountByIdentifier(ctx context.Context, identifier string) (
 
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT did, handle, password_hash, signing_key, rotation_key, status, created_at
+SELECT did, handle, password_hash, signing_key, rotation_key, status, auth_version, created_at
 FROM accounts ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("listing accounts: %w", err)
@@ -179,7 +198,7 @@ FROM accounts ORDER BY created_at ASC`)
 }
 
 func (s *Store) SetPasswordHash(ctx context.Context, did, hash string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET password_hash = ? WHERE did = ?`, hash, did)
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET password_hash = ?, auth_version = auth_version + 1 WHERE did = ?`, hash, did)
 	if err != nil {
 		return fmt.Errorf("setting password: %w", err)
 	}
@@ -195,7 +214,7 @@ func (s *Store) SetHandle(ctx context.Context, did, handle string) error {
 }
 
 func (s *Store) SetStatus(ctx context.Context, did, status string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET status = ? WHERE did = ?`, status, did)
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET status = ?, auth_version = auth_version + 1 WHERE did = ?`, status, did)
 	if err != nil {
 		return fmt.Errorf("setting status: %w", err)
 	}
@@ -222,9 +241,9 @@ func (s *Store) DeleteAccount(ctx context.Context, did string) error {
 
 func (s *Store) CreateRefreshToken(ctx context.Context, t RefreshToken) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO refresh_tokens (token_hash, did, expires_at, created_at)
-VALUES (?, ?, ?, ?)`,
-		t.TokenHash, t.DID, t.ExpiresAt.UTC().Format(time.RFC3339), t.CreatedAt.UTC().Format(time.RFC3339))
+INSERT INTO refresh_tokens (token_hash, did, expires_at, created_at, auth_version, credential_kind, app_password_name)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		t.TokenHash, t.DID, t.ExpiresAt.UTC().Format(time.RFC3339), t.CreatedAt.UTC().Format(time.RFC3339), t.AuthVersion, t.CredentialKind, t.AppPasswordName)
 	if err != nil {
 		return fmt.Errorf("creating refresh token: %w", err)
 	}
@@ -233,11 +252,11 @@ VALUES (?, ?, ?, ?)`,
 
 func (s *Store) GetRefreshToken(ctx context.Context, tokenHash string) (*RefreshToken, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT token_hash, did, expires_at, created_at FROM refresh_tokens WHERE token_hash = ?`, tokenHash)
+SELECT token_hash, did, expires_at, created_at, auth_version, credential_kind, app_password_name FROM refresh_tokens WHERE token_hash = ?`, tokenHash)
 
 	var t RefreshToken
 	var expiresAt, createdAt string
-	if err := row.Scan(&t.TokenHash, &t.DID, &expiresAt, &createdAt); err != nil {
+	if err := row.Scan(&t.TokenHash, &t.DID, &expiresAt, &createdAt, &t.AuthVersion, &t.CredentialKind, &t.AppPasswordName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -251,6 +270,14 @@ SELECT token_hash, did, expires_at, created_at FROM refresh_tokens WHERE token_h
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (s *Store) ConsumeRefreshToken(ctx context.Context, tokenHash, did string, authVersion int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token_hash = ? AND did = ? AND auth_version = ? AND expires_at > ?`, tokenHash, did, authVersion, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("consuming refresh token: %w", err)
+	}
+	return checkRowsAffected(res)
 }
 
 func (s *Store) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
@@ -308,6 +335,25 @@ func (s *Store) DeleteAppPassword(ctx context.Context, did, name string) error {
 	return checkRowsAffected(res)
 }
 
+func (s *Store) RevokeAppPassword(ctx context.Context, did, name string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting app password revocation: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `DELETE FROM app_passwords WHERE did = ? AND name = ?`, did, name)
+	if err != nil {
+		return fmt.Errorf("deleting app password: %w", err)
+	}
+	if err := checkRowsAffected(res); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE did = ? AND app_password_name = ?`, did, name); err != nil {
+		return fmt.Errorf("revoking app password sessions: %w", err)
+	}
+	return tx.Commit()
+}
+
 func scanAppPassword(row rowScanner) (*AppPassword, error) {
 	var ap AppPassword
 	var privileged int
@@ -339,7 +385,7 @@ func scanAccount(row *sql.Row) (*Account, error) {
 func scanAccountRow(row rowScanner) (*Account, error) {
 	var a Account
 	var createdAt string
-	if err := row.Scan(&a.DID, &a.Handle, &a.PasswordHash, &a.SigningKey, &a.RotationKey, &a.Status, &createdAt); err != nil {
+	if err := row.Scan(&a.DID, &a.Handle, &a.PasswordHash, &a.SigningKey, &a.RotationKey, &a.Status, &a.AuthVersion, &createdAt); err != nil {
 		return nil, err
 	}
 	t, err := time.Parse(time.RFC3339, createdAt)
@@ -348,6 +394,13 @@ func scanAccountRow(row rowScanner) (*Account, error) {
 	}
 	a.CreatedAt = t
 	return &a, nil
+}
+
+func maxAuthVersion(v int64) int64 {
+	if v < 1 {
+		return 1
+	}
+	return v
 }
 
 func checkRowsAffected(res sql.Result) error {
@@ -413,26 +466,9 @@ INSERT INTO admin_tokens (token, did, purpose, expires_at, created_at) VALUES (?
 // can't be reused). Returns an error if the token doesn't exist, was
 // issued for a different did/purpose, or has expired.
 func (s *Store) ConsumeAdminToken(ctx context.Context, token, did, purpose string) error {
-	row := s.db.QueryRowContext(ctx, `SELECT did, purpose, expires_at FROM admin_tokens WHERE token = ?`, token)
-	var tokDID, tokPurpose, expiresAt string
-	if err := row.Scan(&tokDID, &tokPurpose, &expiresAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		return fmt.Errorf("looking up admin token: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM admin_tokens WHERE token = ?`, token); err != nil {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM admin_tokens WHERE token = ? AND did = ? AND purpose = ? AND expires_at > ?`, token, did, purpose, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
 		return fmt.Errorf("consuming admin token: %w", err)
 	}
-	if tokDID != did || tokPurpose != purpose {
-		return fmt.Errorf("token is not valid for this account/purpose")
-	}
-	exp, err := time.Parse(time.RFC3339, expiresAt)
-	if err != nil {
-		return err
-	}
-	if time.Now().After(exp) {
-		return fmt.Errorf("token has expired")
-	}
-	return nil
+	return checkRowsAffected(res)
 }

@@ -54,10 +54,16 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	credential := auth.Credential{Kind: auth.CredentialPrimary}
 	if ok, err := auth.VerifyPassword(in.Password, acct.PasswordHash); err != nil || !ok {
-		if !s.verifyAppPassword(r.Context(), acct.DID, in.Password) {
+		ap, ok := s.verifyAppPassword(r.Context(), acct.DID, in.Password)
+		if !ok {
 			writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "invalid identifier or password")
 			return
+		}
+		credential = auth.Credential{Kind: auth.CredentialAppPassword, AppPasswordName: ap.Name}
+		if ap.Privileged {
+			credential.Kind = auth.CredentialPrivilegedAppPassword
 		}
 	}
 
@@ -66,29 +72,30 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.issueSession(w, acct)
+	s.issueSession(w, acct, credential)
 }
 
-func (s *Server) issueSession(w http.ResponseWriter, acct *store.Account) {
+func (s *Server) issueSession(w http.ResponseWriter, acct *store.Account, credential auth.Credential) {
 	serviceDID := ServiceDID(s.cfg)
 
-	accessJwt, _, err := auth.IssueAccessToken(s.cfg.JWTSecret, acct.DID, serviceDID)
+	accessJwt, _, err := auth.IssueAccessToken(s.cfg.JWTSecret, acct.DID, serviceDID, acct.AuthVersion, credential)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to issue session")
 		return
 	}
 
-	refreshJwt, jti, expiresAt, err := auth.IssueRefreshToken(s.cfg.JWTSecret, acct.DID, serviceDID)
+	refreshJwt, jti, expiresAt, err := auth.IssueRefreshToken(s.cfg.JWTSecret, acct.DID, serviceDID, acct.AuthVersion, credential)
 	if err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to issue session")
 		return
 	}
 
 	if err := s.store.CreateRefreshToken(context.Background(), store.RefreshToken{
-		TokenHash: auth.HashToken(jti),
-		DID:       acct.DID,
-		ExpiresAt: expiresAt,
-		CreatedAt: time.Now(),
+		TokenHash:   auth.HashToken(jti),
+		DID:         acct.DID,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now(),
+		AuthVersion: acct.AuthVersion, CredentialKind: credential.Kind, AppPasswordName: credential.AppPasswordName,
 	}); err != nil {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to issue session")
 		return
@@ -130,21 +137,21 @@ func (s *Server) handleRefreshSession(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "refresh token has been revoked")
 		return
 	}
-	if time.Now().After(stored.ExpiresAt) {
-		_ = s.store.DeleteRefreshToken(r.Context(), tokenHash)
-		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "refresh token has expired")
-		return
-	}
-
 	acct, err := s.store.GetAccountByDID(r.Context(), parsed.DID)
 	if err != nil {
 		writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "account not found")
 		return
 	}
 
-	// Rotate: consume the old refresh token, issue a new session.
-	_ = s.store.DeleteRefreshToken(r.Context(), tokenHash)
-	s.issueSession(w, acct)
+	if acct.Status != store.StatusActive || parsed.AuthVersion != acct.AuthVersion || stored.AuthVersion != parsed.AuthVersion || stored.CredentialKind != parsed.CredentialKind || stored.AppPasswordName != parsed.AppPasswordName {
+		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "refresh token has been revoked")
+		return
+	}
+	if err := s.store.ConsumeRefreshToken(r.Context(), tokenHash, parsed.DID, parsed.AuthVersion); err != nil {
+		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "refresh token has been revoked")
+		return
+	}
+	s.issueSession(w, acct, auth.Credential{Kind: parsed.CredentialKind, AppPasswordName: parsed.AppPasswordName})
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +166,10 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	_ = s.store.DeleteRefreshToken(r.Context(), auth.HashToken(parsed.JTI))
+	if err := s.store.DeleteRefreshToken(r.Context(), auth.HashToken(parsed.JTI)); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to delete session")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -220,15 +230,65 @@ func bearerToken(r *http.Request) (string, bool) {
 // requireAccessToken validates the bearer access token and returns the
 // authenticated DID. On failure it writes the error response itself.
 func (s *Server) requireAccessToken(w http.ResponseWriter, r *http.Request) (string, bool) {
+	parsed, ok := s.requirePrincipal(w, r, false, false)
+	if !ok {
+		return "", false
+	}
+	return parsed.DID, true
+}
+
+func (s *Server) requirePrivilegedAccessToken(w http.ResponseWriter, r *http.Request) (string, bool) {
+	parsed, ok := s.requirePrincipal(w, r, true, false)
+	if !ok {
+		return "", false
+	}
+	return parsed.DID, true
+}
+
+func (s *Server) requireMigrationAccessToken(w http.ResponseWriter, r *http.Request) (string, bool) {
+	parsed, ok := s.requirePrincipal(w, r, true, true)
+	if !ok {
+		return "", false
+	}
+	return parsed.DID, true
+}
+
+func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request, privileged, allowInactive bool) (*auth.ParsedToken, bool) {
 	tokenString, ok := bearerToken(r)
 	if !ok {
 		writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "missing bearer token")
-		return "", false
+		return nil, false
 	}
 	parsed, err := auth.ParseAccessToken(s.cfg.JWTSecret, tokenString)
 	if err != nil {
 		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "invalid or expired access token")
-		return "", false
+		return nil, false
 	}
-	return parsed.DID, true
+	acct, err := s.store.GetAccountByDID(r.Context(), parsed.DID)
+	if err != nil || (!allowInactive && acct.Status != store.StatusActive) || acct.AuthVersion != parsed.AuthVersion {
+		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "session has been revoked")
+		return nil, false
+	}
+	if parsed.AppPasswordName != "" {
+		aps, err := s.store.ListAppPasswords(r.Context(), parsed.DID)
+		if err != nil || !matchingAppCredential(aps, parsed) {
+			writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "app password has been revoked")
+			return nil, false
+		}
+	}
+	if privileged && parsed.CredentialKind != auth.CredentialPrimary && parsed.CredentialKind != auth.CredentialPrivilegedAppPassword {
+		writeXRPCError(w, http.StatusForbidden, "AuthRequired", "privileged credentials required")
+		return nil, false
+	}
+	return parsed, true
+}
+
+func matchingAppCredential(aps []store.AppPassword, parsed *auth.ParsedToken) bool {
+	for _, ap := range aps {
+		if ap.Name != parsed.AppPasswordName {
+			continue
+		}
+		return (ap.Privileged && parsed.CredentialKind == auth.CredentialPrivilegedAppPassword) || (!ap.Privileged && parsed.CredentialKind == auth.CredentialAppPassword)
+	}
+	return false
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/bluesky-social/indigo/atproto/syntax"
 
 	"github.com/vrypan/pds-light/internal/auth"
+	"github.com/vrypan/pds-light/internal/store"
 )
 
 const proxyServiceAuthTTL = 60 * time.Second
@@ -197,6 +198,16 @@ func (s *Server) optionalAccessToken(r *http.Request) (string, bool) {
 	parsed, err := auth.ParseAccessToken(s.cfg.JWTSecret, tokenString)
 	if err != nil {
 		return "", false
+	}
+	acct, err := s.store.GetAccountByDID(r.Context(), parsed.DID)
+	if err != nil || acct.Status != store.StatusActive || acct.AuthVersion != parsed.AuthVersion {
+		return "", false
+	}
+	if parsed.AppPasswordName != "" {
+		aps, err := s.store.ListAppPasswords(r.Context(), parsed.DID)
+		if err != nil || !matchingAppCredential(aps, parsed) {
+			return "", false
+		}
 	}
 	return parsed.DID, true
 }

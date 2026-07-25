@@ -26,7 +26,7 @@ type updateHandleInput struct {
 // supplied op), so it signs and submits the PLC update directly, no
 // admin token needed.
 func (s *Server) handleUpdateHandle(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (s *Server) handleUpdateHandle(w http.ResponseWriter, r *http.Request) {
 // like the caller's DID doc to contain — used by a migrating-in client
 // to build the PLC update op that finalizes the move.
 func (s *Server) handleGetRecommendedDidCredentials(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -146,7 +146,7 @@ func publicKeyOf(multibasePriv string) (atcrypto.PublicKey, error) {
 // admin-CLI-confirmation stand-in for the email-gated
 // requestPlcOperationSignature flow (see admin.go's approvePlcOp).
 func (s *Server) handleSignPlcOperation(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -204,7 +204,7 @@ type submitPlcOperationInput struct {
 // itself enforces, and submits the (already-signed) operation on the
 // caller's behalf.
 func (s *Server) handleSubmitPlcOperation(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}

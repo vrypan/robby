@@ -80,16 +80,31 @@ func VerifyPassword(password, encoded string) (bool, error) {
 }
 
 type claims struct {
-	Scope string `json:"scope"`
+	Scope           string `json:"scope"`
+	AuthVersion     int64  `json:"av"`
+	CredentialKind  string `json:"ck"`
+	AppPasswordName string `json:"ap,omitempty"`
 	jwt.RegisteredClaims
 }
 
-// IssueAccessToken creates a stateless HS256 access JWT for did.
-func IssueAccessToken(secret, did, serviceDID string) (string, time.Time, error) {
+type Credential struct {
+	Kind            string
+	AppPasswordName string
+}
+
+const (
+	CredentialPrimary               = "primary"
+	CredentialAppPassword           = "app_password"
+	CredentialPrivilegedAppPassword = "privileged_app_password"
+)
+
+// IssueAccessToken creates an HS256 access JWT bound to the account's current
+// auth version and the credential that created it.
+func IssueAccessToken(secret, did, serviceDID string, authVersion int64, credential Credential) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(AccessTokenTTL)
 	c := claims{
-		Scope: scopeAccess,
+		Scope: scopeAccess, AuthVersion: authVersion, CredentialKind: credential.Kind, AppPasswordName: credential.AppPasswordName,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   did,
 			Audience:  jwt.ClaimStrings{serviceDID},
@@ -106,7 +121,7 @@ func IssueAccessToken(secret, did, serviceDID string) (string, time.Time, error)
 
 // IssueRefreshToken creates an HS256 refresh JWT for did, along with the
 // jti that the caller should store (hashed) in the DB for revocation.
-func IssueRefreshToken(secret, did, serviceDID string) (token, jti string, expiresAt time.Time, err error) {
+func IssueRefreshToken(secret, did, serviceDID string, authVersion int64, credential Credential) (token, jti string, expiresAt time.Time, err error) {
 	jtiBytes := make([]byte, 16)
 	if _, err = rand.Read(jtiBytes); err != nil {
 		return "", "", time.Time{}, fmt.Errorf("generating jti: %w", err)
@@ -116,7 +131,7 @@ func IssueRefreshToken(secret, did, serviceDID string) (token, jti string, expir
 	now := time.Now()
 	exp := now.Add(RefreshTokenTTL)
 	c := claims{
-		Scope: scopeRefresh,
+		Scope: scopeRefresh, AuthVersion: authVersion, CredentialKind: credential.Kind, AppPasswordName: credential.AppPasswordName,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   did,
 			Audience:  jwt.ClaimStrings{serviceDID},
@@ -135,9 +150,12 @@ func IssueRefreshToken(secret, did, serviceDID string) (token, jti string, expir
 // ParsedToken holds the fields callers need from a verified access or
 // refresh token.
 type ParsedToken struct {
-	DID   string
-	JTI   string
-	Scope string
+	DID             string
+	JTI             string
+	Scope           string
+	AuthVersion     int64
+	CredentialKind  string
+	AppPasswordName string
 }
 
 func parse(secret, tokenString, wantScope string) (*ParsedToken, error) {
@@ -154,7 +172,10 @@ func parse(secret, tokenString, wantScope string) (*ParsedToken, error) {
 	if c.Scope != wantScope {
 		return nil, fmt.Errorf("unexpected token scope: %s", c.Scope)
 	}
-	return &ParsedToken{DID: c.Subject, JTI: c.ID, Scope: c.Scope}, nil
+	if c.AuthVersion < 1 || c.CredentialKind == "" {
+		return nil, fmt.Errorf("legacy token is not valid")
+	}
+	return &ParsedToken{DID: c.Subject, JTI: c.ID, Scope: c.Scope, AuthVersion: c.AuthVersion, CredentialKind: c.CredentialKind, AppPasswordName: c.AppPasswordName}, nil
 }
 
 // ParseAccessToken verifies signature, expiry, and scope for an access JWT.

@@ -15,17 +15,17 @@ import (
 // verifyAppPassword checks password against any of did's app passwords.
 // Used by createSession as a fallback when the main account password
 // doesn't match.
-func (s *Server) verifyAppPassword(ctx context.Context, did, password string) bool {
+func (s *Server) verifyAppPassword(ctx context.Context, did, password string) (*store.AppPassword, bool) {
 	aps, err := s.store.ListAppPasswords(ctx, did)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	for _, ap := range aps {
 		if ok, err := auth.VerifyPassword(password, ap.PasswordHash); err == nil && ok {
-			return true
+			return &ap, true
 		}
 	}
-	return false
+	return nil, false
 }
 
 type createAppPasswordInput struct {
@@ -41,7 +41,7 @@ type appPasswordOutput struct {
 }
 
 func (s *Server) handleCreateAppPassword(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -87,7 +87,7 @@ func (s *Server) handleCreateAppPassword(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleListAppPasswords(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -112,7 +112,7 @@ type revokeAppPasswordInput struct {
 }
 
 func (s *Server) handleRevokeAppPassword(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Server) handleRevokeAppPassword(w http.ResponseWriter, r *http.Request)
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed request body")
 		return
 	}
-	if err := s.store.DeleteAppPassword(r.Context(), did, in.Name); err != nil {
+	if err := s.store.RevokeAppPassword(r.Context(), did, in.Name); err != nil {
 		writeXRPCError(w, http.StatusNotFound, "NotFound", "app password not found")
 		return
 	}

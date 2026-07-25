@@ -9,14 +9,17 @@ import (
 	"github.com/bluesky-social/indigo/atproto/syntax"
 )
 
-const defaultServiceAuthTTL = 60 * time.Second
+const (
+	defaultServiceAuthTTL = 60 * time.Second
+	maxServiceAuthTTL     = 10 * time.Minute
+)
 
 // handleGetServiceAuth implements com.atproto.server.getServiceAuth: a
 // short-lived, ES256K-signed token proving the caller's DID, scoped to a
 // target audience (and optionally one Lexicon method), for the caller to
 // present directly to that other service.
 func (s *Server) handleGetServiceAuth(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	did, ok := s.requirePrivilegedAccessToken(w, r)
 	if !ok {
 		return
 	}
@@ -25,6 +28,10 @@ func (s *Server) handleGetServiceAuth(w http.ResponseWriter, r *http.Request) {
 	aud := q.Get("aud")
 	if aud == "" {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "aud is required")
+		return
+	}
+	if _, err := syntax.ParseDID(aud); err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid aud")
 		return
 	}
 
@@ -38,6 +45,10 @@ func (s *Server) handleGetServiceAuth(w http.ResponseWriter, r *http.Request) {
 		ttl = time.Until(time.Unix(expSec, 0))
 		if ttl <= 0 {
 			writeXRPCError(w, http.StatusBadRequest, "BadExpiration", "exp must be in the future")
+			return
+		}
+		if ttl > maxServiceAuthTTL {
+			writeXRPCError(w, http.StatusBadRequest, "BadExpiration", "exp is too far in the future")
 			return
 		}
 	}
