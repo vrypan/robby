@@ -67,11 +67,24 @@ func (u recordURI) String() string {
 
 // --- createRecord / putRecord / deleteRecord -------------------------------
 
+// parseRecord converts an incoming record's JSON into the atproto data
+// model. It must be atdata.UnmarshalJSON rather than a plain encoding/json
+// decode: only the former turns JSON blob refs ({"$type":"blob",...}) and
+// links ({"$link":...}) into the typed values the Lexicon validator and CBOR
+// encoder expect. Decoding straight into map[string]any leaves a blob as an
+// untyped map, which fails validation with "expected a blob".
+func parseRecord(raw json.RawMessage) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("record is required")
+	}
+	return atdata.UnmarshalJSON(raw)
+}
+
 type createRecordInput struct {
-	Repo       string         `json:"repo"`
-	Collection string         `json:"collection"`
-	RKey       string         `json:"rkey"`
-	Record     map[string]any `json:"record"`
+	Repo       string          `json:"repo"`
+	Collection string          `json:"collection"`
+	RKey       string          `json:"rkey"`
+	Record     json.RawMessage `json:"record"`
 }
 
 type recordWriteOutput struct {
@@ -105,19 +118,24 @@ func (s *Server) handleCreateRecord(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	record, err := parseRecord(in.Record)
+	if err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid record data: "+err.Error())
+		return
+	}
 	s.doWrite(w, r, did, []repoops.WriteOp{{
 		Action:     repoops.ActionCreate,
 		Collection: in.Collection,
 		RKey:       in.RKey,
-		Record:     in.Record,
+		Record:     record,
 	}})
 }
 
 type putRecordInput struct {
-	Repo       string         `json:"repo"`
-	Collection string         `json:"collection"`
-	RKey       string         `json:"rkey"`
-	Record     map[string]any `json:"record"`
+	Repo       string          `json:"repo"`
+	Collection string          `json:"collection"`
+	RKey       string          `json:"rkey"`
+	Record     json.RawMessage `json:"record"`
 }
 
 func (s *Server) handlePutRecord(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +156,11 @@ func (s *Server) handlePutRecord(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	record, err := parseRecord(in.Record)
+	if err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid record data: "+err.Error())
+		return
+	}
 
 	action := repoops.ActionCreate
 	if st, gerr := s.actors.Get(did); gerr == nil {
@@ -150,7 +173,7 @@ func (s *Server) handlePutRecord(w http.ResponseWriter, r *http.Request) {
 		Action:     action,
 		Collection: in.Collection,
 		RKey:       in.RKey,
-		Record:     in.Record,
+		Record:     record,
 	}})
 }
 
@@ -233,10 +256,10 @@ func (s *Server) handleApplyWrites(w http.ResponseWriter, r *http.Request) {
 	ops := make([]repoops.WriteOp, 0, len(in.Writes))
 	for _, raw := range in.Writes {
 		var head struct {
-			Type       string         `json:"$type"`
-			Collection string         `json:"collection"`
-			RKey       string         `json:"rkey"`
-			Value      map[string]any `json:"value"`
+			Type       string          `json:"$type"`
+			Collection string          `json:"collection"`
+			RKey       string          `json:"rkey"`
+			Value      json.RawMessage `json:"value"`
 		}
 		if err := json.Unmarshal(raw, &head); err != nil {
 			writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed write entry")
@@ -254,11 +277,20 @@ func (s *Server) handleApplyWrites(w http.ResponseWriter, r *http.Request) {
 			writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "unknown write $type: "+head.Type)
 			return
 		}
+		var record map[string]any
+		if action != repoops.ActionDelete {
+			parsed, perr := parseRecord(head.Value)
+			if perr != nil {
+				writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid record data: "+perr.Error())
+				return
+			}
+			record = parsed
+		}
 		ops = append(ops, repoops.WriteOp{
 			Action:     action,
 			Collection: head.Collection,
 			RKey:       head.RKey,
-			Record:     head.Value,
+			Record:     record,
 		})
 	}
 
