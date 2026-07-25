@@ -103,6 +103,20 @@ CREATE TABLE IF NOT EXISTS app_passwords (
 	created_at    TEXT NOT NULL,
 	PRIMARY KEY (did, name)
 );
+
+CREATE TABLE IF NOT EXISTS reserved_signing_keys (
+	did        TEXT PRIMARY KEY,
+	signing_key TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_tokens (
+	token      TEXT PRIMARY KEY,
+	did        TEXT NOT NULL,
+	purpose    TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrating accounts db: %w", err)
@@ -172,10 +186,36 @@ func (s *Store) SetPasswordHash(ctx context.Context, did, hash string) error {
 	return checkRowsAffected(res)
 }
 
+func (s *Store) SetHandle(ctx context.Context, did, handle string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET handle = ? WHERE did = ?`, handle, did)
+	if err != nil {
+		return fmt.Errorf("setting handle: %w", err)
+	}
+	return checkRowsAffected(res)
+}
+
 func (s *Store) SetStatus(ctx context.Context, did, status string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET status = ? WHERE did = ?`, status, did)
 	if err != nil {
 		return fmt.Errorf("setting status: %w", err)
+	}
+	return checkRowsAffected(res)
+}
+
+// DeleteAccount removes the accounts.db row and any associated
+// refresh-token/app-password/reserved-key/admin-token rows for did. It
+// does not touch the actor's repo DB or blob files on disk — pds-light
+// takes a soft-delete approach at the storage layer; those can be
+// garbage-collected separately if desired.
+func (s *Store) DeleteAccount(ctx context.Context, did string) error {
+	for _, table := range []string{"refresh_tokens", "app_passwords", "reserved_signing_keys", "admin_tokens"} {
+		if _, err := s.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE did = ?", did); err != nil {
+			return fmt.Errorf("deleting %s for account: %w", table, err)
+		}
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE did = ?`, did)
+	if err != nil {
+		return fmt.Errorf("deleting account: %w", err)
 	}
 	return checkRowsAffected(res)
 }
@@ -317,6 +357,82 @@ func checkRowsAffected(res sql.Result) error {
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// ReserveSigningKey records a signing key generated for did before the
+// account exists (com.atproto.server.reserveSigningKey), so a later
+// createAccount call for the same did can reuse it — keeping the
+// did:key stable across both calls, which migration flows depend on.
+func (s *Store) ReserveSigningKey(ctx context.Context, did, signingKey string) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO reserved_signing_keys (did, signing_key, created_at) VALUES (?, ?, ?)
+ON CONFLICT (did) DO UPDATE SET signing_key = excluded.signing_key`,
+		did, signingKey, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("reserving signing key: %w", err)
+	}
+	return nil
+}
+
+// GetReservedSigningKey returns the previously-reserved key for did, if
+// any.
+func (s *Store) GetReservedSigningKey(ctx context.Context, did string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT signing_key FROM reserved_signing_keys WHERE did = ?`, did)
+	var key string
+	if err := row.Scan(&key); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("getting reserved signing key: %w", err)
+	}
+	return key, nil
+}
+
+const (
+	TokenPurposePLCSign       = "plc_sign"
+	TokenPurposeDeleteAccount = "delete_account"
+)
+
+// CreateAdminToken stores an admin-issued, one-time token authorizing a
+// sensitive self-service action (signing a PLC operation, deleting the
+// account) for did — the admin-CLI-confirmation replacement for
+// email-gated confirmation flows (see PLAN.md).
+func (s *Store) CreateAdminToken(ctx context.Context, token, did, purpose string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO admin_tokens (token, did, purpose, expires_at, created_at) VALUES (?, ?, ?, ?, ?)`,
+		token, did, purpose, expiresAt.UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("creating admin token: %w", err)
+	}
+	return nil
+}
+
+// ConsumeAdminToken validates and deletes a token in one step (so it
+// can't be reused). Returns an error if the token doesn't exist, was
+// issued for a different did/purpose, or has expired.
+func (s *Store) ConsumeAdminToken(ctx context.Context, token, did, purpose string) error {
+	row := s.db.QueryRowContext(ctx, `SELECT did, purpose, expires_at FROM admin_tokens WHERE token = ?`, token)
+	var tokDID, tokPurpose, expiresAt string
+	if err := row.Scan(&tokDID, &tokPurpose, &expiresAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("looking up admin token: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM admin_tokens WHERE token = ?`, token); err != nil {
+		return fmt.Errorf("consuming admin token: %w", err)
+	}
+	if tokDID != did || tokPurpose != purpose {
+		return fmt.Errorf("token is not valid for this account/purpose")
+	}
+	exp, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return err
+	}
+	if time.Now().After(exp) {
+		return fmt.Errorf("token has expired")
 	}
 	return nil
 }

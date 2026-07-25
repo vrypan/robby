@@ -3,7 +3,9 @@ package xrpc
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -241,4 +243,90 @@ func (s *Server) emitAccountEvent(ctx context.Context, did string, active bool, 
 		},
 	})
 	return err
+}
+
+// --- admin token issuance (admin-CLI-confirmation replacement for the ---
+// --- email-gated requestPlcOperationSignature / delete-account flows) ---
+
+type adminApproveTokenInput struct {
+	DID     string `json:"did"`
+	Purpose string `json:"purpose"` // "plc_sign" (default) or "delete_account"
+}
+
+const adminTokenTTL = 15 * time.Minute
+
+func (s *Server) handleAdminApproveToken(w http.ResponseWriter, r *http.Request) {
+	var in adminApproveTokenInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed request body")
+		return
+	}
+	if in.DID == "" {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did is required")
+		return
+	}
+	purpose := in.Purpose
+	if purpose == "" {
+		purpose = store.TokenPurposePLCSign
+	}
+	if purpose != store.TokenPurposePLCSign && purpose != store.TokenPurposeDeleteAccount {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "unknown purpose")
+		return
+	}
+	if _, err := s.store.GetAccountByDID(r.Context(), in.DID); err != nil {
+		writeXRPCError(w, http.StatusNotFound, "NotFound", "account not found")
+		return
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to generate token")
+		return
+	}
+	expiresAt := time.Now().Add(adminTokenTTL)
+	if err := s.store.CreateAdminToken(r.Context(), token, in.DID, purpose, expiresAt); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to store token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":     token,
+		"purpose":   purpose,
+		"expiresAt": expiresAt.UTC().Format(time.RFC3339),
+	})
+}
+
+type adminTakedownAccountInput struct {
+	DID string `json:"did"`
+}
+
+func (s *Server) handleAdminTakedownAccount(w http.ResponseWriter, r *http.Request) {
+	var in adminTakedownAccountInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed request body")
+		return
+	}
+	if in.DID == "" {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did is required")
+		return
+	}
+	if err := s.store.SetStatus(r.Context(), in.DID, store.StatusTakenDown); err != nil {
+		writeXRPCError(w, http.StatusNotFound, "NotFound", "account not found")
+		return
+	}
+	_ = s.store.DeleteRefreshTokensForDID(r.Context(), in.DID)
+	status := store.StatusTakenDown
+	if err := s.emitAccountEvent(r.Context(), in.DID, false, &status); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to sequence account event")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+func randomToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

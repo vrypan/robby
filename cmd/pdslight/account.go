@@ -119,7 +119,60 @@ func newAccountCmd() *cobra.Command {
 	}
 	cmd.AddCommand(deactivate)
 
+	takedown := &cobra.Command{
+		Use:   "takedown <did>",
+		Short: "Take down an account (moderation action; stronger than deactivate)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out map[string]any
+			if err := adminRequest(http.MethodPost, "com.pdslight.admin.takedownAccount", map[string]any{
+				"did": args[0],
+			}, &out); err != nil {
+				return err
+			}
+			fmt.Println("account taken down")
+			return nil
+		},
+	}
+	cmd.AddCommand(takedown)
+
+	approvePlcOp := &cobra.Command{
+		Use:   "approve-plc-op <did>",
+		Short: "Issue a one-time token authorizing identity.signPlcOperation for an account",
+		Long: "Admin-CLI stand-in for the email-gated requestPlcOperationSignature flow.\n" +
+			"Share the printed token with the account owner out of band; it expires in 15 minutes.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return approveToken(args[0], "plc_sign")
+		},
+	}
+	cmd.AddCommand(approvePlcOp)
+
+	approveDelete := &cobra.Command{
+		Use:   "approve-delete <did>",
+		Short: "Issue a one-time token authorizing server.deleteAccount for an account",
+		Long: "Admin-CLI stand-in for the email-gated requestAccountDelete flow.\n" +
+			"Share the printed token with the account owner out of band; it expires in 15 minutes.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return approveToken(args[0], "delete_account")
+		},
+	}
+	cmd.AddCommand(approveDelete)
+
 	return cmd
+}
+
+func approveToken(did, purpose string) error {
+	var out map[string]any
+	if err := adminRequest(http.MethodPost, "com.pdslight.admin.approveToken", map[string]any{
+		"did":     did,
+		"purpose": purpose,
+	}, &out); err != nil {
+		return err
+	}
+	fmt.Printf("token: %s (expires %s)\n", out["token"], out["expiresAt"])
+	return nil
 }
 
 func promptPassword() (string, error) {

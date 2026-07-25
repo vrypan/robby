@@ -392,3 +392,122 @@ func (s *Store) ListBlobCIDs(ctx context.Context, cursor string, limit int) ([]c
 	}
 	return out, rows.Err()
 }
+
+// ClearRepo wipes all repo state (blocks, repo root, record index, blob
+// metadata and refs — but not blob bytes on disk) within tx, so
+// repo.importRepo can replace a freshly-created (empty) repo with an
+// imported one.
+func (s *Store) ClearRepo(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []string{"blocks", "repo_root", "records", "blobs", "blob_refs"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+			return fmt.Errorf("clearing %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
+// CountBlocks returns the number of blocks in the repo's block store.
+func (s *Store) CountBlocks(ctx context.Context) (int64, error) {
+	return s.countRows(ctx, `SELECT COUNT(*) FROM blocks`)
+}
+
+// CountRecords returns the number of indexed records.
+func (s *Store) CountRecords(ctx context.Context) (int64, error) {
+	return s.countRows(ctx, `SELECT COUNT(*) FROM records`)
+}
+
+// CountBlobs returns the number of blobs referenced (expected), whether
+// or not their bytes have been uploaded yet.
+func (s *Store) CountBlobs(ctx context.Context) (int64, error) {
+	return s.countRows(ctx, `SELECT COUNT(*) FROM blobs`)
+}
+
+func (s *Store) countRows(ctx context.Context, query string) (int64, error) {
+	row := s.db.QueryRowContext(ctx, query)
+	var n int64
+	if err := row.Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// BlobFileExists reports whether a blob's raw bytes are present on disk.
+func (s *Store) BlobFileExists(c cid.Cid) bool {
+	_, err := os.Stat(s.BlobPath(c))
+	return err == nil
+}
+
+// MissingBlobs returns the CIDs of all referenced blobs whose bytes
+// haven't been uploaded yet (used after repo.importRepo, before blobs
+// are transferred, and by repo.listMissingBlobs).
+func (s *Store) MissingBlobs(ctx context.Context) ([]cid.Cid, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT cid FROM blobs ORDER BY cid ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("listing blobs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []cid.Cid
+	for rows.Next() {
+		var cidStr string
+		if err := rows.Scan(&cidStr); err != nil {
+			return nil, err
+		}
+		c, err := cid.Decode(cidStr)
+		if err != nil {
+			return nil, err
+		}
+		if !s.BlobFileExists(c) {
+			out = append(out, c)
+		}
+	}
+	return out, rows.Err()
+}
+
+type MissingBlobRef struct {
+	CID        cid.Cid
+	Collection string
+	RKey       string
+}
+
+// MissingBlobRefs returns, for every blob_refs row whose blob bytes
+// haven't been uploaded yet, the blob CID and the record path that
+// references it (com.atproto.repo.listMissingBlobs).
+func (s *Store) MissingBlobRefs(ctx context.Context) ([]MissingBlobRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT blob_cid, collection, rkey FROM blob_refs ORDER BY blob_cid ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("listing blob refs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []MissingBlobRef
+	for rows.Next() {
+		var cidStr, collection, rkey string
+		if err := rows.Scan(&cidStr, &collection, &rkey); err != nil {
+			return nil, err
+		}
+		c, err := cid.Decode(cidStr)
+		if err != nil {
+			return nil, err
+		}
+		if !s.BlobFileExists(c) {
+			out = append(out, MissingBlobRef{CID: c, Collection: collection, RKey: rkey})
+		}
+	}
+	return out, rows.Err()
+}
+
+// CountImportedBlobs returns how many referenced blobs have their bytes
+// present on disk.
+func (s *Store) CountImportedBlobs(ctx context.Context) (int64, error) {
+	total, err := s.CountBlobs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	missing, err := s.MissingBlobs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return total - int64(len(missing)), nil
+}

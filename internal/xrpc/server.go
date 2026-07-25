@@ -50,6 +50,11 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 		store: st,
 		dir: &identity.BaseDirectory{
 			PLCURL: cfg.PLCURL,
+			// DID->pubkey lookups (service-auth validation, commit
+			// signature checks during repo import) shouldn't fail just
+			// because handle DNS/well-known verification hiccups; that
+			// bidirectional check isn't needed for those call sites.
+			SkipHandleVerification: true,
 		},
 		actors: actors,
 		writer: writer,
@@ -74,6 +79,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /xrpc/com.atproto.server.createAppPassword", s.handleCreateAppPassword)
 	mux.HandleFunc("GET /xrpc/com.atproto.server.listAppPasswords", s.handleListAppPasswords)
 	mux.HandleFunc("POST /xrpc/com.atproto.server.revokeAppPassword", s.handleRevokeAppPassword)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.reserveSigningKey", s.handleReserveSigningKey)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.createAccount", s.handleServerCreateAccount)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.activateAccount", s.handleActivateAccount)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.deactivateAccount", s.handleDeactivateAccountSelf)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.deleteAccount", s.handleDeleteAccount)
+	mux.HandleFunc("GET /xrpc/com.atproto.server.checkAccountStatus", s.handleCheckAccountStatus)
+	mux.HandleFunc("POST /xrpc/com.atproto.identity.updateHandle", s.handleUpdateHandle)
+	mux.HandleFunc("GET /xrpc/com.atproto.identity.getRecommendedDidCredentials", s.handleGetRecommendedDidCredentials)
+	mux.HandleFunc("POST /xrpc/com.atproto.identity.signPlcOperation", s.handleSignPlcOperation)
+	mux.HandleFunc("POST /xrpc/com.atproto.identity.submitPlcOperation", s.handleSubmitPlcOperation)
 
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.createRecord", s.handleCreateRecord)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.putRecord", s.handlePutRecord)
@@ -83,6 +98,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /xrpc/com.atproto.repo.listRecords", s.handleListRecords)
 	mux.HandleFunc("GET /xrpc/com.atproto.repo.describeRepo", s.handleDescribeRepo)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.uploadBlob", s.handleUploadBlob)
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.importRepo", s.handleImportRepo)
+	mux.HandleFunc("GET /xrpc/com.atproto.repo.listMissingBlobs", s.handleListMissingBlobs)
 
 	mux.HandleFunc("GET /xrpc/com.atproto.sync.getRepo", s.handleSyncGetRepo)
 	mux.HandleFunc("GET /xrpc/com.atproto.sync.getRepoStatus", s.handleSyncGetRepoStatus)
@@ -98,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /xrpc/com.pdslight.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.setPassword", s.requireAdmin(s.handleAdminSetPassword))
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.deactivateAccount", s.requireAdmin(s.handleAdminDeactivateAccount))
+	mux.HandleFunc("POST /xrpc/com.pdslight.admin.approveToken", s.requireAdmin(s.handleAdminApproveToken))
+	mux.HandleFunc("POST /xrpc/com.pdslight.admin.takedownAccount", s.requireAdmin(s.handleAdminTakedownAccount))
 
 	// Catch-all: any /xrpc/* method not registered above (app.bsky.* reads,
 	// and any other unknown NSID) is service-proxied. Go's ServeMux gives
