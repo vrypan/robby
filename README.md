@@ -44,8 +44,9 @@ relays       = ["https://bsky.network"]
 
 `jwt_secret` and `admin_password` are generated automatically on first
 run and written back into the config file if left blank — just don't
-commit that file anywhere public. `data_dir` is created automatically
-and holds:
+commit that file anywhere public. If it may have been exposed, rotate
+both immediately; rotation invalidates all current JWTs. `data_dir` is
+created automatically and holds:
 
 ```
 data_dir/

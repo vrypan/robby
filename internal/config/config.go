@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -38,6 +39,9 @@ func defaults() Config {
 func Load(path string) (*Config, error) {
 	cfg := defaults()
 
+	if err := validateRegularConfig(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
@@ -76,9 +80,11 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("marshaling config: %w", err)
 		}
-		if err := os.WriteFile(path, out, 0600); err != nil {
-			return nil, fmt.Errorf("writing config %s: %w", path, err)
+		if err := writePrivateConfig(path, out); err != nil {
+			return nil, err
 		}
+	} else if err := makeConfigPrivate(path); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
@@ -90,4 +96,70 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func validateRegularConfig(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspecting config %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("config %s: symlinks are not allowed", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("config %s: must be a regular file", path)
+	}
+	return nil
+}
+
+func makeConfigPrivate(path string) error {
+	if err := os.Chmod(path, 0600); err != nil {
+		return fmt.Errorf("setting private permissions on config %s: %w", path, err)
+	}
+	return verifyPrivateConfig(path)
+}
+
+func writePrivateConfig(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("creating temporary config near %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("setting private permissions on temporary config %s: %w", path, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("writing temporary config %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temporary config %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replacing config %s: %w", path, err)
+	}
+	tmpPath = ""
+
+	return verifyPrivateConfig(path)
+}
+
+func verifyPrivateConfig(path string) error {
+	if err := validateRegularConfig(path); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspecting config %s: %w", path, err)
+	}
+	if info.Mode().Perm() != 0600 {
+		return fmt.Errorf("config %s: private permissions were not applied", path)
+	}
+	return nil
 }
