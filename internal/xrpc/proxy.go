@@ -16,8 +16,9 @@ import (
 const proxyServiceAuthTTL = 60 * time.Second
 
 type proxyTarget struct {
-	did string // service DID, used as the service-auth "aud"
-	url string // base URL to forward the request to
+	did     string // service DID, used as the service-auth "aud"
+	url     string // base URL to forward the request to
+	trusted bool   // true only for the operator-configured AppView
 }
 
 // resolveProxyTarget picks where to forward an unhandled /xrpc/* request:
@@ -26,7 +27,7 @@ type proxyTarget struct {
 func (s *Server) resolveProxyTarget(r *http.Request) (*proxyTarget, error) {
 	header := r.Header.Get("atproto-proxy")
 	if header == "" {
-		return &proxyTarget{did: s.cfg.AppviewDID, url: s.cfg.AppviewURL}, nil
+		return &proxyTarget{did: s.cfg.AppviewDID, url: s.cfg.AppviewURL, trusted: true}, nil
 	}
 
 	did, fragment, _ := strings.Cut(header, "#")
@@ -45,7 +46,10 @@ func (s *Server) resolveProxyTarget(r *http.Request) (*proxyTarget, error) {
 	serviceID := "#" + fragment
 	for _, svc := range doc.Service {
 		if svc.ID == serviceID || svc.ID == did+serviceID {
-			return &proxyTarget{did: did, url: svc.ServiceEndpoint}, nil
+			if !strings.HasPrefix(svc.ServiceEndpoint, "https://") {
+				return nil, fmt.Errorf("proxy target endpoint must be https")
+			}
+			return &proxyTarget{did: did, url: svc.ServiceEndpoint, trusted: false}, nil
 		}
 	}
 	return nil, fmt.Errorf("no matching service %q in DID document for %s", serviceID, did)
@@ -102,7 +106,14 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(outReq)
+	// The operator-configured AppView is trusted (may be localhost in
+	// dev); an atproto-proxy-header target is client-supplied, so route
+	// it through the SSRF-guarded client that refuses non-public IPs.
+	client := http.DefaultClient
+	if !target.trusted {
+		client = proxyHTTPClient
+	}
+	resp, err := client.Do(outReq)
 	if err != nil {
 		writeXRPCError(w, http.StatusBadGateway, "UpstreamFailure", "proxied request failed: "+err.Error())
 		return

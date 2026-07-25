@@ -3,8 +3,27 @@ package actorstore
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/bluesky-social/indigo/atproto/syntax"
 )
+
+// validDID guards against path traversal: did is used to build
+// filesystem paths (actors/<did>.db, blobs/<did>/), and these stores are
+// reachable via unauthenticated sync endpoints with a client-supplied
+// did. Require a syntactically valid atproto DID, and defensively reject
+// any path separators or "." components even though ParseDID already
+// excludes them.
+func validDID(did string) error {
+	if _, err := syntax.ParseDID(did); err != nil {
+		return fmt.Errorf("invalid did: %w", err)
+	}
+	if strings.ContainsAny(did, "/\\") || did == "." || did == ".." || strings.Contains(did, "..") {
+		return fmt.Errorf("invalid did: contains path separators")
+	}
+	return nil
+}
 
 // Manager opens and caches per-actor Stores, and serializes all writes to
 // a given actor's repo behind a per-DID mutex (per PLAN.md: "All writes
@@ -36,6 +55,10 @@ func (m *Manager) actorBlobDir(did string) string {
 // Get returns the (opened, cached) Store for did, opening it on disk if
 // this is the first access this process.
 func (m *Manager) Get(did string) (*Store, error) {
+	if err := validDID(did); err != nil {
+		return nil, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
