@@ -2,6 +2,8 @@ package xrpc
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -17,7 +19,17 @@ func writeXRPCError(w http.ResponseWriter, status int, name, message string) {
 	writeJSON(w, status, map[string]string{"error": name, "message": message})
 }
 
+const maxJSONBodyBytes = 1 << 20
+
 func decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	decoder := json.NewDecoder(io.LimitReader(r.Body, maxJSONBodyBytes+1))
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("unexpected trailing JSON value")
+	}
+	return nil
 }

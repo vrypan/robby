@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	cbornode "github.com/ipfs/go-ipld-cbor"
 
@@ -25,7 +26,7 @@ type Client struct {
 }
 
 func NewClient(baseURL string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: http.DefaultClient}
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, IdleConnTimeout: 90 * time.Second}}}
 }
 
 // OpFields are the mutable contents of a did:plc operation.
@@ -132,7 +133,7 @@ func (c *Client) Submit(ctx context.Context, did string, signedOp map[string]any
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("PLC server rejected operation (status %d): %s", resp.StatusCode, string(respBody))
 	}
 	return nil
@@ -161,7 +162,7 @@ func (c *Client) GetLastOp(ctx context.Context, did string) (cidStr string, oper
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", nil, fmt.Errorf("PLC server rejected audit log request (status %d): %s", resp.StatusCode, string(body))
 	}
 

@@ -31,6 +31,11 @@ var proxyHTTPClient = &http.Client{
 	},
 }
 
+var trustedHTTPClient = &http.Client{
+	Timeout:   30 * time.Second,
+	Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, ExpectContinueTimeout: time.Second},
+}
+
 // newUntrustedResolutionHTTPClient is used for client-selected did:web and
 // handle lookups. Direct IP dialing preserves the URL hostname for TLS SNI
 // and certificate verification while preventing DNS rebinding.

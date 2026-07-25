@@ -53,8 +53,13 @@ func runServe() error {
 	}
 
 	httpSrv := &http.Server{
-		Addr:    cfg.Listen,
-		Handler: srv.Handler(),
+		Addr:              cfg.Listen,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+		// No WriteTimeout: firehose websockets and streamed proxy responses
+		// are intentionally long-lived.
 	}
 
 	errCh := make(chan error, 1)

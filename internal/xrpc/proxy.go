@@ -117,7 +117,7 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 	// The operator-configured AppView is trusted (may be localhost in
 	// dev); an atproto-proxy-header target is client-supplied, so route
 	// it through the SSRF-guarded client that refuses non-public IPs.
-	client := http.DefaultClient
+	client := trustedHTTPClient
 	if !target.trusted {
 		client = proxyHTTPClient
 	}
