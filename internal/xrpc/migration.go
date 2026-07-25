@@ -392,7 +392,7 @@ func (s *Server) handleActivateAccount(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "account has no repo yet; import one before activating")
 		return
 	}
-	if err := s.store.SetStatus(r.Context(), did, store.StatusActive); err != nil {
+	if err := s.store.ActivateAccount(r.Context(), did); err != nil {
 		writeXRPCError(w, http.StatusNotFound, "NotFound", "account not found")
 		return
 	}

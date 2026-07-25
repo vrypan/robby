@@ -1,6 +1,8 @@
 package xrpc
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"strconv"
 
@@ -12,6 +14,11 @@ import (
 	"github.com/vrypan/pds-light/internal/store"
 )
 
+// errRepoNotHosted marks a lookup for a DID this server does not host (no
+// local account, or no actor store on disk). Callers map it to a 404
+// RepoNotFound rather than a misleading 500.
+var errRepoNotHosted = errors.New("repo not hosted here")
+
 func writeCARResponse(w http.ResponseWriter, roots []cid.Cid, blks []blocks.Block) {
 	w.Header().Set("Content-Type", "application/vnd.ipld.car")
 	w.WriteHeader(http.StatusOK)
@@ -20,9 +27,29 @@ func writeCARResponse(w http.ResponseWriter, roots []cid.Cid, blks []blocks.Bloc
 
 func (s *Server) hostedActorStore(r *http.Request, did string) (*actorstore.Store, error) {
 	if _, err := s.store.GetAccountByDID(r.Context(), did); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, errRepoNotHosted
+		}
 		return nil, err
 	}
-	return s.actors.GetExisting(did)
+	st, err := s.actors.GetExisting(did)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, errRepoNotHosted
+		}
+		return nil, err
+	}
+	return st, nil
+}
+
+// writeActorStoreError renders a hostedActorStore failure: a not-hosted DID
+// is a 404 RepoNotFound; anything else is a genuine internal error.
+func writeActorStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errRepoNotHosted) {
+		writeXRPCError(w, http.StatusNotFound, "RepoNotFound", "repo not found")
+		return
+	}
+	writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
 }
 
 func (s *Server) handleSyncGetRepo(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +60,7 @@ func (s *Server) handleSyncGetRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	root, err := st.GetRepoRoot(r.Context())
@@ -83,7 +110,7 @@ func (s *Server) handleSyncGetLatestCommit(w http.ResponseWriter, r *http.Reques
 	}
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	root, err := st.GetRepoRoot(r.Context())
@@ -106,7 +133,7 @@ func (s *Server) handleSyncGetRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	root, err := st.GetRepoRoot(r.Context())
@@ -136,7 +163,7 @@ func (s *Server) handleSyncGetBlocks(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	bs := st.Blockstore(st.DB())
@@ -175,7 +202,7 @@ func (s *Server) handleSyncListBlobs(w http.ResponseWriter, r *http.Request) {
 
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	cids, err := st.ListBlobCIDs(r.Context(), cursor, limit)
@@ -212,7 +239,7 @@ func (s *Server) handleSyncGetBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.hostedActorStore(r, did)
 	if err != nil {
-		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to open repo")
+		writeActorStoreError(w, err)
 		return
 	}
 	meta, err := st.GetBlobMeta(r.Context(), c)

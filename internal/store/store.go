@@ -218,10 +218,27 @@ func (s *Store) SetHandle(ctx context.Context, did, handle string) error {
 	return checkRowsAffected(res)
 }
 
+// SetStatus changes an account's status and bumps its auth version, so any
+// existing sessions are immediately invalidated. Use this for revoking
+// transitions (takedown, deactivation). To bring a deactivated account
+// online without invalidating the migration session that is driving it, use
+// ActivateAccount instead.
 func (s *Store) SetStatus(ctx context.Context, did, status string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET status = ?, auth_version = auth_version + 1 WHERE did = ?`, status, did)
 	if err != nil {
 		return fmt.Errorf("setting status: %w", err)
+	}
+	return checkRowsAffected(res)
+}
+
+// ActivateAccount marks an account active without bumping its auth version.
+// Activation is the final step of a migration-in; the session that imported
+// the repo and calls activateAccount must remain valid afterwards, so —
+// unlike SetStatus — this transition is deliberately non-revoking.
+func (s *Store) ActivateAccount(ctx context.Context, did string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET status = ? WHERE did = ?`, StatusActive, did)
+	if err != nil {
+		return fmt.Errorf("activating account: %w", err)
 	}
 	return checkRowsAffected(res)
 }
@@ -245,6 +262,13 @@ func (s *Store) DeleteAccount(ctx context.Context, did string) error {
 }
 
 func (s *Store) CreateRefreshToken(ctx context.Context, t RefreshToken) error {
+	// Opportunistically prune this account's expired rows. ConsumeRefreshToken
+	// only matches unexpired tokens (leaving expired ones behind), and there
+	// is no background sweeper, so without this expired rows would accumulate
+	// for the token's whole 90-day lifetime.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE did = ? AND expires_at <= ?`, t.DID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("pruning expired refresh tokens: %w", err)
+	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO refresh_tokens (token_hash, did, expires_at, created_at, auth_version, credential_kind, app_password_name)
 VALUES (?, ?, ?, ?, ?, ?, ?)`,
