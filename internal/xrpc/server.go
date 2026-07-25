@@ -70,6 +70,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /xrpc/com.atproto.server.deleteSession", s.handleDeleteSession)
 	mux.HandleFunc("GET /xrpc/com.atproto.server.getSession", s.handleGetSession)
 	mux.HandleFunc("GET /xrpc/com.atproto.identity.resolveHandle", s.handleResolveHandle)
+	mux.HandleFunc("GET /xrpc/com.atproto.server.getServiceAuth", s.handleGetServiceAuth)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.createAppPassword", s.handleCreateAppPassword)
+	mux.HandleFunc("GET /xrpc/com.atproto.server.listAppPasswords", s.handleListAppPasswords)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.revokeAppPassword", s.handleRevokeAppPassword)
 
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.createRecord", s.handleCreateRecord)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.putRecord", s.handlePutRecord)
@@ -94,6 +98,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /xrpc/com.pdslight.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.setPassword", s.requireAdmin(s.handleAdminSetPassword))
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.deactivateAccount", s.requireAdmin(s.handleAdminDeactivateAccount))
+
+	// Catch-all: any /xrpc/* method not registered above (app.bsky.* reads,
+	// and any other unknown NSID) is service-proxied. Go's ServeMux gives
+	// exact-pattern registrations above priority over this subtree match.
+	mux.HandleFunc("/xrpc/", s.handleServiceProxy)
 
 	return withLogging(s.log, mux)
 }

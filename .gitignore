@@ -1,0 +1,4 @@
+/pdslight
+*.db
+*.db-shm
+*.db-wal

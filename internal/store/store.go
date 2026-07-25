@@ -37,6 +37,14 @@ type RefreshToken struct {
 	CreatedAt time.Time
 }
 
+type AppPassword struct {
+	DID          string
+	Name         string
+	PasswordHash string
+	Privileged   bool
+	CreatedAt    time.Time
+}
+
 type Store struct {
 	db *sql.DB
 }
@@ -86,6 +94,15 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_did ON refresh_tokens(did);
+
+CREATE TABLE IF NOT EXISTS app_passwords (
+	did           TEXT NOT NULL,
+	name          TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	privileged    INTEGER NOT NULL,
+	created_at    TEXT NOT NULL,
+	PRIMARY KEY (did, name)
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrating accounts db: %w", err)
@@ -210,6 +227,61 @@ func (s *Store) DeleteRefreshTokensForDID(ctx context.Context, did string) error
 		return fmt.Errorf("deleting refresh tokens for did: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) CreateAppPassword(ctx context.Context, ap AppPassword) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO app_passwords (did, name, password_hash, privileged, created_at)
+VALUES (?, ?, ?, ?, ?)`,
+		ap.DID, ap.Name, ap.PasswordHash, ap.Privileged, ap.CreatedAt.UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("creating app password: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListAppPasswords(ctx context.Context, did string) ([]AppPassword, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT did, name, password_hash, privileged, created_at FROM app_passwords
+WHERE did = ? ORDER BY created_at ASC`, did)
+	if err != nil {
+		return nil, fmt.Errorf("listing app passwords: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AppPassword
+	for rows.Next() {
+		ap, err := scanAppPassword(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *ap)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteAppPassword(ctx context.Context, did, name string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM app_passwords WHERE did = ? AND name = ?`, did, name)
+	if err != nil {
+		return fmt.Errorf("deleting app password: %w", err)
+	}
+	return checkRowsAffected(res)
+}
+
+func scanAppPassword(row rowScanner) (*AppPassword, error) {
+	var ap AppPassword
+	var privileged int
+	var createdAt string
+	if err := row.Scan(&ap.DID, &ap.Name, &ap.PasswordHash, &privileged, &createdAt); err != nil {
+		return nil, err
+	}
+	ap.Privileged = privileged != 0
+	t, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parsing created_at: %w", err)
+	}
+	ap.CreatedAt = t
+	return &ap, nil
 }
 
 type rowScanner interface {

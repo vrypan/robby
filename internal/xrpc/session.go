@@ -54,10 +54,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := auth.VerifyPassword(in.Password, acct.PasswordHash)
-	if err != nil || !ok {
-		writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "invalid identifier or password")
-		return
+	if ok, err := auth.VerifyPassword(in.Password, acct.PasswordHash); err != nil || !ok {
+		if !s.verifyAppPassword(r.Context(), acct.DID, in.Password) {
+			writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "invalid identifier or password")
+			return
+		}
 	}
 
 	if acct.Status == store.StatusTakenDown {
