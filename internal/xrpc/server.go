@@ -27,13 +27,16 @@ func ServiceDID(cfg *config.Config) string {
 }
 
 type Server struct {
-	cfg    *config.Config
-	store  *store.Store
-	dir    *identity.BaseDirectory
-	actors *actorstore.Manager
-	writer *repoops.Writer
-	seq    *sequencer.Sequencer
-	log    *slog.Logger
+	cfg   *config.Config
+	store *store.Store
+	dir   *identity.BaseDirectory
+	// untrustedDir is only for client-selected did:web and handle lookups.
+	// Keep dir separate: it may deliberately point to a private PLC service.
+	untrustedDir *identity.BaseDirectory
+	actors       *actorstore.Manager
+	writer       *repoops.Writer
+	seq          *sequencer.Sequencer
+	log          *slog.Logger
 }
 
 func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error) {
@@ -47,16 +50,20 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 	}
 	writer := repoops.NewWriter(actors)
 	writer.Seq = seq
+	dir := &identity.BaseDirectory{
+		PLCURL: cfg.PLCURL,
+		// DID->pubkey lookups (service-auth validation, commit
+		// signature checks during repo import) shouldn't fail just
+		// because handle DNS/well-known verification hiccups; that
+		// bidirectional check isn't needed for those call sites.
+		SkipHandleVerification: true,
+	}
 	return &Server{
 		cfg:   cfg,
 		store: st,
-		dir: &identity.BaseDirectory{
-			PLCURL: cfg.PLCURL,
-			// DID->pubkey lookups (service-auth validation, commit
-			// signature checks during repo import) shouldn't fail just
-			// because handle DNS/well-known verification hiccups; that
-			// bidirectional check isn't needed for those call sites.
-			SkipHandleVerification: true,
+		dir:   dir,
+		untrustedDir: &identity.BaseDirectory{
+			HTTPClient: *newUntrustedResolutionHTTPClient(),
 		},
 		actors: actors,
 		writer: writer,

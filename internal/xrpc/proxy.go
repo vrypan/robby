@@ -39,7 +39,14 @@ func (s *Server) resolveProxyTarget(r *http.Request) (*proxyTarget, error) {
 		fragment = "atproto_pds"
 	}
 
-	doc, err := s.dir.ResolveDID(r.Context(), parsedDID)
+	// did:web names a host chosen by the client, so its document retrieval
+	// must use the SSRF-guarded client. did:plc instead goes to the
+	// operator-configured PLC directory, which may intentionally be private.
+	dir := s.dir
+	if parsedDID.Method() == "web" {
+		dir = s.untrustedDir
+	}
+	doc, err := dir.ResolveDID(r.Context(), parsedDID)
 	if err != nil {
 		return nil, fmt.Errorf("resolving proxy target DID: %w", err)
 	}
