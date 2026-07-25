@@ -5,9 +5,9 @@ number of known users. Single static Go binary, SQLite storage, blobs on
 disk. See [`plans/PLAN.md`](plans/PLAN.md) for the full design and build
 plan.
 
-**Status:** phases 1–3 implemented — identity/auth, repo core (records,
-blobs), and sync/firehose (`subscribeRepos`). App integration (service
-proxying, app passwords), account migration, and OAuth are not yet
+**Status:** phases 1–4 implemented — identity/auth, repo core (records,
+blobs), sync/firehose (`subscribeRepos`), and app integration (service
+proxying, app passwords). Account migration and OAuth are not yet
 built.
 
 ## Requirements
@@ -119,16 +119,39 @@ goat repo export <did>            # download a CAR file
 goat firehose --relay-host wss://pds.example.com   # stream the firehose
 ```
 
-The official Bluesky app is **not** expected to fully work yet — service
-proxying to the AppView (needed for `app.bsky.*` reads like feeds and
-profiles) is phase 4 and not implemented.
+The official Bluesky app should mostly work for reading (feeds,
+profiles, notifications — proxied to the AppView) and for posting/
+following/blob upload (served directly). Anything needing account
+migration or OAuth-only login is not implemented yet.
+
+### Service proxying & app passwords
+
+Requests for NSIDs this server doesn't implement itself (`app.bsky.*`
+reads, mainly) are forwarded to `appview_url`/`appview_did` from the
+config, signed with a short-lived service-auth JWT for the calling
+account. A client can redirect a request elsewhere with an
+`atproto-proxy: <did>#<serviceId>` header — the target DID's document is
+resolved to find that service's endpoint.
+
+```sh
+# Ask the PDS for a service-auth token to call another service directly
+goat account service-auth --aud did:web:api.bsky.app
+
+# Create/list/revoke app passwords, for logging in third-party apps
+# without handing out the account's main password (no dedicated goat
+# subcommand yet, so call the XRPC procedures directly)
+goat xrpc procedure @pds com.atproto.server.createAppPassword name=my-app
+goat xrpc query @pds com.atproto.server.listAppPasswords
+goat xrpc procedure @pds com.atproto.server.revokeAppPassword name=my-app
+```
 
 ## What's implemented (XRPC surface)
 
 **Identity & auth**
 `server.describeServer`, `server.createSession`, `refreshSession`,
 `deleteSession`, `getSession`, `identity.resolveHandle`,
-`/.well-known/atproto-did`
+`/.well-known/atproto-did`, `server.getServiceAuth`,
+`server.createAppPassword`, `listAppPasswords`, `revokeAppPassword`
 
 **Repo (records & blobs)**
 `repo.createRecord`, `putRecord`, `deleteRecord`, `applyWrites`,
@@ -140,14 +163,17 @@ validated against real `com.atproto.*`/`app.bsky.*` Lexicon schemas.
 `getBlocks`, `listBlobs`, `getBlob`, `listRepos`, `subscribeRepos`
 (websocket firehose with cursor backfill and live tail).
 
+**App integration**
+Everything else under `/xrpc/*` (mainly `app.bsky.*`) is service-proxied
+to the configured AppView, or to an `atproto-proxy` header's target —
+see below.
+
 **Admin** (`com.pdslight.admin.*`, HTTP Basic auth, not part of the
 public AT Protocol lexicon)
 `createAccount`, `listAccounts`, `setPassword`, `deactivateAccount`.
 
 ## Not yet implemented
 
-- Service proxying to the AppView (`app.bsky.*` reads) and app
-  passwords — phase 4.
 - Account migration (`importRepo`, `reserveSigningKey`, etc.),
   handle/key rotation, and takedown status — phase 5.
 - OAuth authorization server — phase 6 (deferred).
