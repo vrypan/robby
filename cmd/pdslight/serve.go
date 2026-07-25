@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,10 +10,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vrypan/pds-light/internal/config"
+	"github.com/vrypan/pds-light/internal/relay"
 	"github.com/vrypan/pds-light/internal/store"
 	"github.com/vrypan/pds-light/internal/xrpc"
 )
@@ -61,6 +64,23 @@ func runServe() error {
 			errCh <- err
 		}
 	}()
+
+	// Declare ourselves to the configured relays so they (re)subscribe to
+	// our firehose and backfill repos. Per PLAN.md's watchdog note, this
+	// runs on every startup. Best-effort: failures are logged, not fatal.
+	if len(cfg.Relays) > 0 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			for _, r := range cfg.Relays {
+				if err := relay.RequestCrawl(ctx, r, cfg.Hostname); err != nil {
+					log.Warn("requestCrawl failed", "relay", r, "err", err)
+				} else {
+					log.Info("requestCrawl ok", "relay", r)
+				}
+			}
+		}()
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)

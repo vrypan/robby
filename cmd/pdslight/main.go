@@ -18,6 +18,7 @@ func main() {
 
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newAccountCmd())
+	root.AddCommand(newRelayCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
