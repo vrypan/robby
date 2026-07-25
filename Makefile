@@ -42,18 +42,21 @@ fmt:
 ## release: build and archive every release platform
 release: $(PLATFORMS)
 
-# Per-platform release build. Produces:
-#   dist/<binary>_<version>_<name>/<binary>
+# Per-platform release build. The build directory is version-free so the
+# binary path stays stable across rebuilds (dist/<binary>_<name>/<binary>);
+# the version still lands in the tarball name and is stamped into the binary
+# itself (robby --version). Produces:
+#   dist/<binary>_<name>/<binary>
 #   dist/<binary>_<version>_<name>.tar.gz
 $(PLATFORMS):
 	@echo "building $@ ($(VERSION))"
-	@mkdir -p $(DIST)/$(BINARY)_$(VERSION)_$@
+	@mkdir -p $(DIST)/$(BINARY)_$@
 	CGO_ENABLED=0 GOOS=$($@_GOOS) GOARCH=$($@_GOARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" \
-		-o $(DIST)/$(BINARY)_$(VERSION)_$@/$(BINARY) $(PKG)
-	@cp README.md $(DIST)/$(BINARY)_$(VERSION)_$@/ 2>/dev/null || true
+		-o $(DIST)/$(BINARY)_$@/$(BINARY) $(PKG)
+	@cp README.md $(DIST)/$(BINARY)_$@/ 2>/dev/null || true
 	@tar -czf $(DIST)/$(BINARY)_$(VERSION)_$@.tar.gz \
-		-C $(DIST) $(BINARY)_$(VERSION)_$@
+		-C $(DIST) $(BINARY)_$@
 	@echo "  -> $(DIST)/$(BINARY)_$(VERSION)_$@.tar.gz"
 
 ## clean: remove build artifacts
