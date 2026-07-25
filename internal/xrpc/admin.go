@@ -1,14 +1,22 @@
 package xrpc
 
 import (
+	"bytes"
+	"context"
 	"crypto/subtle"
 	"net/http"
 	"time"
 
+	comatproto "github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/atproto/atcrypto"
 	"github.com/bluesky-social/indigo/atproto/syntax"
+	lexutil "github.com/bluesky-social/indigo/lex/util"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
 
 	"github.com/vrypan/pds-light/internal/auth"
+	"github.com/vrypan/pds-light/internal/carutil"
+	"github.com/vrypan/pds-light/internal/firehose"
 	"github.com/vrypan/pds-light/internal/plc"
 	"github.com/vrypan/pds-light/internal/store"
 )
@@ -106,6 +114,23 @@ func (s *Server) handleAdminCreateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Give the account a real (empty) initial repo/commit, so sync
+	// endpoints and the firehose have something to describe from the
+	// start. ApplyWrites (via writer.Seq) also emits the #commit event.
+	commit, commitCID, _, err := s.writer.ApplyWrites(r.Context(), did, signingPriv, nil)
+	if err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to initialize repo: "+err.Error())
+		return
+	}
+	if err := s.emitSyncEvent(r.Context(), did, commitCID, commit.Rev); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to sequence sync event: "+err.Error())
+		return
+	}
+	if err := s.emitAccountEvent(r.Context(), did, true, nil); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to sequence account event: "+err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, adminAccountOutput{DID: acct.DID, Handle: acct.Handle, Status: acct.Status})
 }
 
@@ -170,5 +195,50 @@ func (s *Server) handleAdminDeactivateAccount(w http.ResponseWriter, r *http.Req
 		return
 	}
 	_ = s.store.DeleteRefreshTokensForDID(r.Context(), in.DID)
+	status := store.StatusDeactivated
+	if err := s.emitAccountEvent(r.Context(), in.DID, false, &status); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to sequence account event: "+err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+// emitSyncEvent appends a #sync firehose event declaring did's current
+// repo state (just the commit block — enough to recover cursor position
+// and confirm the repo exists).
+func (s *Server) emitSyncEvent(ctx context.Context, did string, commitCID cid.Cid, rev string) error {
+	st, err := s.actors.Get(did)
+	if err != nil {
+		return err
+	}
+	blk, err := st.Blockstore(st.DB()).Get(ctx, commitCID)
+	if err != nil {
+		return err
+	}
+	var carBuf bytes.Buffer
+	if err := carutil.WriteCAR(&carBuf, []cid.Cid{commitCID}, []blocks.Block{blk}); err != nil {
+		return err
+	}
+	_, err = s.seq.Append(ctx, did, &firehose.Event{
+		RepoSync: &comatproto.SyncSubscribeRepos_Sync{
+			Did:    did,
+			Rev:    rev,
+			Blocks: lexutil.LexBytes(carBuf.Bytes()),
+			Time:   time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+	return err
+}
+
+// emitAccountEvent appends an #account firehose event.
+func (s *Server) emitAccountEvent(ctx context.Context, did string, active bool, status *string) error {
+	_, err := s.seq.Append(ctx, did, &firehose.Event{
+		RepoAccount: &comatproto.SyncSubscribeRepos_Account{
+			Did:    did,
+			Active: active,
+			Status: status,
+			Time:   time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+	return err
 }

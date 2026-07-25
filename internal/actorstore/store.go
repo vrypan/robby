@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	_ "modernc.org/sqlite"
 )
@@ -329,4 +330,65 @@ func (s *Store) ReadBlobFile(c cid.Cid) ([]byte, error) {
 		return nil, err
 	}
 	return b, nil
+}
+
+// AllBlocks returns every block in the repo's block store. Used for full
+// repo export (sync.getRepo) and record proof responses (sync.getRecord)
+// — pds-light doesn't compute minimal MST inclusion proofs, so it returns
+// the full block set, which is a valid (non-minimal) proof.
+func (s *Store) AllBlocks(ctx context.Context) ([]blocks.Block, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT cid, bytes FROM blocks`)
+	if err != nil {
+		return nil, fmt.Errorf("listing blocks: %w", err)
+	}
+	defer rows.Close()
+
+	var out []blocks.Block
+	for rows.Next() {
+		var cidStr string
+		var data []byte
+		if err := rows.Scan(&cidStr, &data); err != nil {
+			return nil, err
+		}
+		c, err := cid.Decode(cidStr)
+		if err != nil {
+			return nil, err
+		}
+		blk, err := blocks.NewBlockWithCid(data, c)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, blk)
+	}
+	return out, rows.Err()
+}
+
+// ListBlobCIDs returns blob CIDs in insertion order, for cursor-paginated
+// listBlobs.
+func (s *Store) ListBlobCIDs(ctx context.Context, cursor string, limit int) ([]cid.Cid, error) {
+	var rows *sql.Rows
+	var err error
+	if cursor == "" {
+		rows, err = s.db.QueryContext(ctx, `SELECT cid FROM blobs ORDER BY cid ASC LIMIT ?`, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `SELECT cid FROM blobs WHERE cid > ? ORDER BY cid ASC LIMIT ?`, cursor, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("listing blobs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []cid.Cid
+	for rows.Next() {
+		var cidStr string
+		if err := rows.Scan(&cidStr); err != nil {
+			return nil, err
+		}
+		c, err := cid.Decode(cidStr)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }

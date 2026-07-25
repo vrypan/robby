@@ -13,6 +13,7 @@ import (
 	"github.com/vrypan/pds-light/internal/actorstore"
 	"github.com/vrypan/pds-light/internal/config"
 	"github.com/vrypan/pds-light/internal/repoops"
+	"github.com/vrypan/pds-light/internal/sequencer"
 	"github.com/vrypan/pds-light/internal/store"
 )
 
@@ -29,14 +30,21 @@ type Server struct {
 	dir    *identity.BaseDirectory
 	actors *actorstore.Manager
 	writer *repoops.Writer
+	seq    *sequencer.Sequencer
 	log    *slog.Logger
 }
 
-func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
 	actors := actorstore.NewManager(cfg.DataDir)
+	seq, err := sequencer.New(st.DB())
+	if err != nil {
+		return nil, err
+	}
+	writer := repoops.NewWriter(actors)
+	writer.Seq = seq
 	return &Server{
 		cfg:   cfg,
 		store: st,
@@ -44,9 +52,10 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) *Server {
 			PLCURL: cfg.PLCURL,
 		},
 		actors: actors,
-		writer: repoops.NewWriter(actors),
+		writer: writer,
+		seq:    seq,
 		log:    log,
-	}
+	}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -70,6 +79,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /xrpc/com.atproto.repo.listRecords", s.handleListRecords)
 	mux.HandleFunc("GET /xrpc/com.atproto.repo.describeRepo", s.handleDescribeRepo)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.uploadBlob", s.handleUploadBlob)
+
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getRepo", s.handleSyncGetRepo)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getRepoStatus", s.handleSyncGetRepoStatus)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getLatestCommit", s.handleSyncGetLatestCommit)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getRecord", s.handleSyncGetRecord)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getBlocks", s.handleSyncGetBlocks)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.listBlobs", s.handleSyncListBlobs)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.getBlob", s.handleSyncGetBlob)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.listRepos", s.handleSyncListRepos)
+	mux.HandleFunc("GET /xrpc/com.atproto.sync.subscribeRepos", s.handleSubscribeRepos)
 
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.createAccount", s.requireAdmin(s.handleAdminCreateAccount))
 	mux.HandleFunc("GET /xrpc/com.pdslight.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))

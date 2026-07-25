@@ -44,7 +44,10 @@ func runServe() error {
 	defer st.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := xrpc.NewServer(cfg, st, log)
+	srv, err := xrpc.NewServer(cfg, st, log)
+	if err != nil {
+		return err
+	}
 
 	httpSrv := &http.Server{
 		Addr:    cfg.Listen,
