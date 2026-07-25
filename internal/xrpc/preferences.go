@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
+	"github.com/vrypan/robby/internal/actorstore"
 )
 
 // handleGetPreferences implements app.bsky.actor.getPreferences. Despite

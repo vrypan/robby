@@ -16,11 +16,11 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/carutil"
-	"github.com/vrypan/pds-light/internal/firehose"
-	"github.com/vrypan/pds-light/internal/plc"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/carutil"
+	"github.com/vrypan/robby/internal/firehose"
+	"github.com/vrypan/robby/internal/plc"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // requireAdmin wraps a handler with HTTP Basic auth against the
@@ -29,7 +29,7 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, pass, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.cfg.AdminPassword)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Basic realm="pdslight-admin"`)
+			w.Header().Set("WWW-Authenticate", `Basic realm="robby-admin"`)
 			writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "invalid admin credentials")
 			return
 		}

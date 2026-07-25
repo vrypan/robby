@@ -245,7 +245,7 @@ func (s *Store) ActivateAccount(ctx context.Context, did string) error {
 
 // DeleteAccount removes the accounts.db row and any associated
 // refresh-token/app-password/reserved-key/admin-token rows for did. It
-// does not touch the actor's repo DB or blob files on disk — pds-light
+// does not touch the actor's repo DB or blob files on disk — robby
 // takes a soft-delete approach at the storage layer; those can be
 // garbage-collected separately if desired.
 func (s *Store) DeleteAccount(ctx context.Context, did string) error {

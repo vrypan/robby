@@ -11,7 +11,7 @@ import (
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/store"
 )
 
 func TestIsPublicIP(t *testing.T) {

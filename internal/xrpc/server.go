@@ -1,4 +1,4 @@
-// Package xrpc implements the pds-light HTTP surface: XRPC endpoints,
+// Package xrpc implements the robby HTTP surface: XRPC endpoints,
 // auth middleware, and the /.well-known/atproto-did route.
 package xrpc
 
@@ -12,11 +12,11 @@ import (
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/config"
-	"github.com/vrypan/pds-light/internal/repoops"
-	"github.com/vrypan/pds-light/internal/sequencer"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/config"
+	"github.com/vrypan/robby/internal/repoops"
+	"github.com/vrypan/robby/internal/sequencer"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // ServiceDID is the DID used as the audience for tokens issued by this
@@ -126,12 +126,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /xrpc/com.atproto.sync.listRepos", s.handleSyncListRepos)
 	mux.HandleFunc("GET /xrpc/com.atproto.sync.subscribeRepos", s.handleSubscribeRepos)
 
-	mux.HandleFunc("POST /xrpc/com.pdslight.admin.createAccount", s.requireAdmin(s.handleAdminCreateAccount))
-	mux.HandleFunc("GET /xrpc/com.pdslight.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))
-	mux.HandleFunc("POST /xrpc/com.pdslight.admin.setPassword", s.requireAdmin(s.handleAdminSetPassword))
-	mux.HandleFunc("POST /xrpc/com.pdslight.admin.deactivateAccount", s.requireAdmin(s.handleAdminDeactivateAccount))
-	mux.HandleFunc("POST /xrpc/com.pdslight.admin.approveToken", s.requireAdmin(s.handleAdminApproveToken))
-	mux.HandleFunc("POST /xrpc/com.pdslight.admin.takedownAccount", s.requireAdmin(s.handleAdminTakedownAccount))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.createAccount", s.requireAdmin(s.handleAdminCreateAccount))
+	mux.HandleFunc("GET /xrpc/net.vrypan.robby.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.setPassword", s.requireAdmin(s.handleAdminSetPassword))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.deactivateAccount", s.requireAdmin(s.handleAdminDeactivateAccount))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.approveToken", s.requireAdmin(s.handleAdminApproveToken))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.takedownAccount", s.requireAdmin(s.handleAdminTakedownAccount))
 
 	// Catch-all: any /xrpc/* method not registered above (app.bsky.* reads,
 	// and any other unknown NSID) is service-proxied. Go's ServeMux gives
@@ -210,7 +210,7 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": "pds-light/0.1.0"})
+	writeJSON(w, http.StatusOK, map[string]any{"version": "robby/0.1.0"})
 }
 
 func (s *Server) handleWellKnownDID(w http.ResponseWriter, r *http.Request) {

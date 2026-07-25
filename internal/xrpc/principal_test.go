@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/config"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/config"
+	"github.com/vrypan/robby/internal/store"
 )
 
 const principalSecret = "principal-test-secret"

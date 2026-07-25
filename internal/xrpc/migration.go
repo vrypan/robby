@@ -21,9 +21,9 @@ import (
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	car "github.com/ipld/go-car"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // --- server.reserveSigningKey --------------------------------------------

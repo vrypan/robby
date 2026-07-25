@@ -8,7 +8,7 @@ import (
 	comatproto "github.com/bluesky-social/indigo/api/atproto"
 	"github.com/gorilla/websocket"
 
-	"github.com/vrypan/pds-light/internal/firehose"
+	"github.com/vrypan/robby/internal/firehose"
 )
 
 var upgrader = websocket.Upgrader{

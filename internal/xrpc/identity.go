@@ -10,9 +10,9 @@ import (
 	"github.com/bluesky-social/indigo/atproto/atcrypto"
 	"github.com/bluesky-social/indigo/atproto/syntax"
 
-	"github.com/vrypan/pds-light/internal/firehose"
-	"github.com/vrypan/pds-light/internal/plc"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/firehose"
+	"github.com/vrypan/robby/internal/plc"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // --- identity.updateHandle -------------------------------------------------

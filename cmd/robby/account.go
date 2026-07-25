@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vrypan/pds-light/internal/config"
+	"github.com/vrypan/robby/internal/config"
 )
 
 func newAccountCmd() *cobra.Command {
@@ -39,7 +39,7 @@ func newAccountCmd() *cobra.Command {
 				}
 			}
 			var out map[string]any
-			if err := adminRequest(http.MethodPost, "com.pdslight.admin.createAccount", map[string]any{
+			if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.createAccount", map[string]any{
 				"handle":   args[0],
 				"password": pw,
 			}, &out); err != nil {
@@ -63,7 +63,7 @@ func newAccountCmd() *cobra.Command {
 					Status string `json:"status"`
 				} `json:"accounts"`
 			}
-			if err := adminRequest(http.MethodGet, "com.pdslight.admin.listAccounts", nil, &out); err != nil {
+			if err := adminRequest(http.MethodGet, "net.vrypan.robby.admin.listAccounts", nil, &out); err != nil {
 				return err
 			}
 			for _, a := range out.Accounts {
@@ -89,7 +89,7 @@ func newAccountCmd() *cobra.Command {
 				}
 			}
 			var out map[string]any
-			if err := adminRequest(http.MethodPost, "com.pdslight.admin.setPassword", map[string]any{
+			if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.setPassword", map[string]any{
 				"did":      args[0],
 				"password": pw,
 			}, &out); err != nil {
@@ -108,7 +108,7 @@ func newAccountCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var out map[string]any
-			if err := adminRequest(http.MethodPost, "com.pdslight.admin.deactivateAccount", map[string]any{
+			if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.deactivateAccount", map[string]any{
 				"did": args[0],
 			}, &out); err != nil {
 				return err
@@ -125,7 +125,7 @@ func newAccountCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var out map[string]any
-			if err := adminRequest(http.MethodPost, "com.pdslight.admin.takedownAccount", map[string]any{
+			if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.takedownAccount", map[string]any{
 				"did": args[0],
 			}, &out); err != nil {
 				return err
@@ -165,7 +165,7 @@ func newAccountCmd() *cobra.Command {
 
 func approveToken(did, purpose string) error {
 	var out map[string]any
-	if err := adminRequest(http.MethodPost, "com.pdslight.admin.approveToken", map[string]any{
+	if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.approveToken", map[string]any{
 		"did":     did,
 		"purpose": purpose,
 	}, &out); err != nil {
@@ -194,7 +194,7 @@ func promptPassword() (string, error) {
 }
 
 // adminRequest loads the config to discover the admin base URL and admin
-// password, then makes an authenticated request to a com.pdslight.admin.*
+// password, then makes an authenticated request to a net.vrypan.robby.admin.*
 // endpoint on the running server.
 func adminRequest(method, nsid string, body any, out any) error {
 	cfg, err := config.Load(configPath)

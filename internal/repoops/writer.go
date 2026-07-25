@@ -24,10 +24,10 @@ import (
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	"github.com/multiformats/go-multihash"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/carutil"
-	"github.com/vrypan/pds-light/internal/firehose"
-	"github.com/vrypan/pds-light/internal/lexicon"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/carutil"
+	"github.com/vrypan/robby/internal/firehose"
+	"github.com/vrypan/robby/internal/lexicon"
 )
 
 type Action string
@@ -60,7 +60,7 @@ type WriteResult struct {
 var recordPrefix = cid.NewPrefixV1(cid.DagCBOR, multihash.SHA2_256)
 var rawPrefix = cid.NewPrefixV1(cid.Raw, multihash.SHA2_256)
 
-// BlobCID computes the content-addressed CID pds-light uses for blob
+// BlobCID computes the content-addressed CID robby uses for blob
 // bytes (raw codec, sha2-256), matching how record `blob` refs resolve.
 func BlobCID(data []byte) (cid.Cid, error) {
 	return rawPrefix.Sum(data)

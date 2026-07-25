@@ -39,7 +39,7 @@ func Catalog() (*indigolexicon.BaseCatalog, error) {
 // ValidateRecord validates recordData (an atproto "loosely-typed data"
 // map, as produced by atdata.UnmarshalJSON) against the Lexicon schema
 // named by its "$type" field. Unknown NSIDs (no schema in the catalog)
-// are allowed through unvalidated, since pds-light must accept records
+// are allowed through unvalidated, since robby must accept records
 // for lexicons it doesn't ship a copy of.
 func ValidateRecord(recordData map[string]any) error {
 	nsid, ok := recordData["$type"].(string)

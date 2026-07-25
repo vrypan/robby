@@ -13,12 +13,12 @@ import (
 	"github.com/bluesky-social/indigo/atproto/atdata"
 	"github.com/bluesky-social/indigo/atproto/syntax"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/repoops"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/repoops"
 )
 
 // resolveRepoDID resolves the "repo" XRPC param (handle or DID) to a DID
-// by looking up the account locally; pds-light only hosts its own users.
+// by looking up the account locally; robby only hosts its own users.
 func (s *Server) resolveRepoDID(ctx context.Context, repoParam string) (string, error) {
 	acct, err := s.store.GetAccountByIdentifier(ctx, strings.TrimPrefix(repoParam, "at://"))
 	if err != nil {
@@ -28,7 +28,7 @@ func (s *Server) resolveRepoDID(ctx context.Context, repoParam string) (string, 
 }
 
 // requireOwnRepo validates the bearer access token and checks that its DID
-// matches repoParam (handle or DID). pds-light doesn't yet support
+// matches repoParam (handle or DID). robby doesn't yet support
 // acting-on-behalf-of, so writes must be made by the record owner.
 func (s *Server) requireOwnRepo(w http.ResponseWriter, r *http.Request, repoParam string) (did string, ok bool) {
 	authDID, ok := s.requireAccessToken(w, r)

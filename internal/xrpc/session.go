@@ -8,8 +8,8 @@ import (
 
 	"github.com/bluesky-social/indigo/atproto/syntax"
 
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/store"
 )
 
 func (s *Server) handleDescribeServer(w http.ResponseWriter, r *http.Request) {

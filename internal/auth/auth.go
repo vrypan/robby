@@ -1,5 +1,5 @@
 // Package auth implements password hashing and access/refresh token
-// issuance and verification for pds-light.
+// issuance and verification for robby.
 package auth
 
 import (

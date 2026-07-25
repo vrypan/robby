@@ -1,4 +1,4 @@
-# pds-light
+# robby
 
 A lightweight AT Protocol Personal Data Server (PDS), built for a small
 number of known users. Single static Go binary, SQLite storage, blobs on
@@ -20,21 +20,21 @@ proxying, app passwords), and account migration/lifecycle. Only OAuth
 
 ```sh
 git clone <this repo>
-cd pds-light
-go build -o pdslight ./cmd/pdslight
+cd robby
+go build -o robby ./cmd/robby
 ```
 
-This produces a single `pdslight` binary that runs both the server and
+This produces a single `robby` binary that runs both the server and
 the admin CLI.
 
 ## Configuration
 
-pds-light reads a TOML config file (default path `pdslight.toml` in the
+robby reads a TOML config file (default path `robby.toml` in the
 current directory, override with `--config`):
 
 ```toml
 hostname     = "pds.example.com"
-data_dir     = "/var/lib/pdslight"
+data_dir     = "/var/lib/robby"
 listen       = ":3000"
 plc_url      = "https://plc.directory"
 appview_url  = "https://api.bsky.app"
@@ -58,7 +58,7 @@ data_dir/
 ## Running the server
 
 ```sh
-./pdslight --config pdslight.toml serve
+./robby --config robby.toml serve
 ```
 
 This starts the HTTP server on `listen` (plain HTTP — put TLS at a
@@ -79,27 +79,27 @@ address and admin password):
 ```sh
 # Create a new account. Generates a signing key + rotation key,
 # registers a did:plc genesis operation, and creates an empty repo.
-./pdslight --config pdslight.toml account create alice.pds.example.com
+./robby --config robby.toml account create alice.pds.example.com
 # (prompts for a password, or pass --password)
 
 # List accounts
-./pdslight --config pdslight.toml account list
+./robby --config robby.toml account list
 
 # Change a password (also revokes that account's outstanding sessions)
-./pdslight --config pdslight.toml account set-password <did>
+./robby --config robby.toml account set-password <did>
 
 # Deactivate an account
-./pdslight --config pdslight.toml account deactivate <did>
+./robby --config robby.toml account deactivate <did>
 
 # Take down an account (moderation action; blocks login entirely)
-./pdslight --config pdslight.toml account takedown <did>
+./robby --config robby.toml account takedown <did>
 
 # Issue a one-time token authorizing identity.signPlcOperation or
 # server.deleteAccount for an account — the admin-CLI-confirmation
 # stand-in for email-gated confirmation flows. Share the printed token
 # with the account owner out of band; it expires in 15 minutes.
-./pdslight --config pdslight.toml account approve-plc-op <did>
-./pdslight --config pdslight.toml account approve-delete <did>
+./robby --config robby.toml account approve-plc-op <did>
+./robby --config robby.toml account approve-delete <did>
 ```
 
 There are no invite codes and no self-serve signup for brand-new
@@ -116,7 +116,7 @@ server:
 
 ```sh
 # On the OLD host, issue a token so the migration can update identity:
-old-host$ pdslight --config old.toml account approve-plc-op <did>
+old-host$ robby --config old.toml account approve-plc-op <did>
 
 # Then, authenticated against the OLD host:
 goat account migrate --pds-host https://new.pds.example.com \
@@ -128,7 +128,7 @@ goat account migrate --pds-host https://new.pds.example.com \
 This creates the account on the new host, imports the repo and blobs,
 updates the DID's PLC document to point at the new host/keys,
 deactivates the account on the old host, and activates it on the new
-one — the whole flow verified end-to-end between two pds-light
+one — the whole flow verified end-to-end between two robby
 instances.
 
 ### Handles
@@ -213,7 +213,7 @@ Everything else under `/xrpc/*` (mainly `app.bsky.*`) is service-proxied
 to the configured AppView, or to an `atproto-proxy` header's target —
 see below.
 
-**Admin** (`com.pdslight.admin.*`, HTTP Basic auth, not part of the
+**Admin** (`net.vrypan.robby.admin.*`, HTTP Basic auth, not part of the
 public AT Protocol lexicon)
 `createAccount`, `listAccounts`, `setPassword`, `deactivateAccount`,
 `takedownAccount`, `approveToken`.

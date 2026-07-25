@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vrypan/pds-light/internal/config"
-	"github.com/vrypan/pds-light/internal/relay"
+	"github.com/vrypan/robby/internal/config"
+	"github.com/vrypan/robby/internal/relay"
 )
 
 func newRelayCmd() *cobra.Command {

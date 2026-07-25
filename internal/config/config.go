@@ -1,4 +1,4 @@
-// Package config loads the pds-light TOML configuration file.
+// Package config loads the robby TOML configuration file.
 package config
 
 import (

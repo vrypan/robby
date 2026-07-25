@@ -1,7 +1,7 @@
-# pds-light build and release Makefile.
+# robby build and release Makefile.
 
-BINARY  := pdslight
-PKG     := ./cmd/pdslight
+BINARY  := robby
+PKG     := ./cmd/robby
 DIST    := dist
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)

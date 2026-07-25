@@ -340,7 +340,7 @@ func (s *Store) ReadBlobFile(c cid.Cid) ([]byte, error) {
 
 // AllBlocks returns every block in the repo's block store. Used for full
 // repo export (sync.getRepo) and record proof responses (sync.getRecord)
-// — pds-light doesn't compute minimal MST inclusion proofs, so it returns
+// — robby doesn't compute minimal MST inclusion proofs, so it returns
 // the full block set, which is a valid (non-minimal) proof.
 func (s *Store) AllBlocks(ctx context.Context) ([]blocks.Block, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT cid, bytes FROM blocks`)

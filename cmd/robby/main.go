@@ -14,11 +14,11 @@ var version = "dev"
 
 func main() {
 	root := &cobra.Command{
-		Use:     "pdslight",
-		Short:   "pds-light: a lightweight AT Protocol PDS",
+		Use:     "robby",
+		Short:   "robby: a lightweight AT Protocol PDS",
 		Version: version,
 	}
-	root.PersistentFlags().StringVar(&configPath, "config", "pdslight.toml", "path to config file")
+	root.PersistentFlags().StringVar(&configPath, "config", "robby.toml", "path to config file")
 
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newAccountCmd())

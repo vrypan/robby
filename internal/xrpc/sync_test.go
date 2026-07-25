@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/config"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/config"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // TestSyncUnknownDIDAllocatesNothing is the plan-004 guarantee: an

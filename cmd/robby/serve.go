@@ -14,16 +14,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vrypan/pds-light/internal/config"
-	"github.com/vrypan/pds-light/internal/relay"
-	"github.com/vrypan/pds-light/internal/store"
-	"github.com/vrypan/pds-light/internal/xrpc"
+	"github.com/vrypan/robby/internal/config"
+	"github.com/vrypan/robby/internal/relay"
+	"github.com/vrypan/robby/internal/store"
+	"github.com/vrypan/robby/internal/xrpc"
 )
 
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Run the pds-light server",
+		Short: "Run the robby server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runServe()
 		},

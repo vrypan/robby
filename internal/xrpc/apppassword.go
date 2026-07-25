@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // verifyAppPassword checks password against any of did's app passwords.

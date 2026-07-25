@@ -1,4 +1,4 @@
-module github.com/vrypan/pds-light
+module github.com/vrypan/robby
 
 go 1.26.5
 

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vrypan/pds-light/internal/firehose"
+	"github.com/vrypan/robby/internal/firehose"
 )
 
 // BackfillWindow is how long events are retained for backfill, per

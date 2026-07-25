@@ -2,7 +2,7 @@
 // a dag-cbor header ({"op":1,"t":"#commit"}, or {"op":-1} for errors)
 // immediately followed by a dag-cbor body. This intentionally avoids
 // indigo's events package (which pulls in gorm/otel/websocket relay
-// machinery pds-light doesn't need) and instead encodes directly against
+// machinery robby doesn't need) and instead encodes directly against
 // the generated comatproto message structs.
 package firehose
 
@@ -25,7 +25,7 @@ type ErrorFrame struct {
 	Message string
 }
 
-// Event is a tagged union of the message kinds pds-light emits on the
+// Event is a tagged union of the message kinds robby emits on the
 // firehose. Exactly one field should be set.
 type Event struct {
 	RepoCommit   *comatproto.SyncSubscribeRepos_Commit

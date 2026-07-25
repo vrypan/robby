@@ -10,8 +10,8 @@ import (
 	indigoauth "github.com/bluesky-social/indigo/atproto/auth"
 	"github.com/bluesky-social/indigo/atproto/syntax"
 
-	"github.com/vrypan/pds-light/internal/auth"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/auth"
+	"github.com/vrypan/robby/internal/store"
 )
 
 const proxyServiceAuthTTL = 60 * time.Second
@@ -101,7 +101,7 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyProxyHeaders(outReq.Header, r.Header)
-	outReq.Header.Set("User-Agent", "pds-light-proxy")
+	outReq.Header.Set("User-Agent", "robby-proxy")
 
 	if callerDID, ok := s.optionalAccessToken(r); ok {
 		signingKey, err := s.signingKeyFor(r.Context(), callerDID)

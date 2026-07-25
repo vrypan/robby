@@ -9,9 +9,9 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 
-	"github.com/vrypan/pds-light/internal/actorstore"
-	"github.com/vrypan/pds-light/internal/carutil"
-	"github.com/vrypan/pds-light/internal/store"
+	"github.com/vrypan/robby/internal/actorstore"
+	"github.com/vrypan/robby/internal/carutil"
+	"github.com/vrypan/robby/internal/store"
 )
 
 // errRepoNotHosted marks a lookup for a DID this server does not host (no
@@ -122,7 +122,7 @@ func (s *Server) handleSyncGetLatestCommit(w http.ResponseWriter, r *http.Reques
 }
 
 // handleSyncGetRecord returns data blocks proving a record's (non-)
-// existence. pds-light doesn't compute a minimal MST inclusion proof, so
+// existence. robby doesn't compute a minimal MST inclusion proof, so
 // this returns the full block set — a valid but non-minimal proof.
 func (s *Server) handleSyncGetRecord(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

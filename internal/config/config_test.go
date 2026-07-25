@@ -8,17 +8,17 @@ import (
 )
 
 const populatedConfig = `hostname = "pds.example.com"
-data_dir = "/var/lib/pdslight"
+data_dir = "/var/lib/robby"
 jwt_secret = "present"
 admin_password = "present"
 `
 
 const blankSecretsConfig = `hostname = "pds.example.com"
-data_dir = "/var/lib/pdslight"
+data_dir = "/var/lib/robby"
 `
 
 func TestLoadTightensExistingConfigPermissions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pdslight.toml")
+	path := filepath.Join(t.TempDir(), "robby.toml")
 	if err := os.WriteFile(path, []byte(populatedConfig), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestLoadTightensExistingConfigPermissions(t *testing.T) {
 }
 
 func TestLoadGeneratesSecretsWithPrivatePermissions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pdslight.toml")
+	path := filepath.Join(t.TempDir(), "robby.toml")
 	if err := os.WriteFile(path, []byte(blankSecretsConfig), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestLoadRejectsSymlinkConfig(t *testing.T) {
 	if err := os.WriteFile(target, []byte("invalid = ["), 0600); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "pdslight.toml")
+	path := filepath.Join(dir, "robby.toml")
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatal(err)
 	}
