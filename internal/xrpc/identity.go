@@ -40,7 +40,11 @@ func (s *Server) handleUpdateHandle(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid handle")
 		return
 	}
-	if _, err := s.store.GetAccountByHandle(r.Context(), newHandle.String()); err == nil {
+	// Reject only if the handle belongs to a *different* account. Allowing
+	// the caller to re-affirm their own handle makes updateHandle idempotent,
+	// which doubles as a way to re-emit the identity event and re-trigger
+	// handle verification (e.g. to clear a stuck "Invalid Handle").
+	if existing, err := s.store.GetAccountByHandle(r.Context(), newHandle.String()); err == nil && existing.DID != did {
 		writeXRPCError(w, http.StatusBadRequest, "HandleNotAvailable", "handle already in use")
 		return
 	}

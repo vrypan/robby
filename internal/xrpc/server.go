@@ -132,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.deactivateAccount", s.requireAdmin(s.handleAdminDeactivateAccount))
 	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.approveToken", s.requireAdmin(s.handleAdminApproveToken))
 	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.takedownAccount", s.requireAdmin(s.handleAdminTakedownAccount))
+	mux.HandleFunc("POST /xrpc/net.vrypan.robby.admin.refreshIdentity", s.requireAdmin(s.handleAdminRefreshIdentity))
 
 	// Catch-all: any /xrpc/* method not registered above (app.bsky.* reads,
 	// and any other unknown NSID) is service-proxied. Go's ServeMux gives

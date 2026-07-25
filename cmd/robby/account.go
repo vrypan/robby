@@ -160,6 +160,27 @@ func newAccountCmd() *cobra.Command {
 	}
 	cmd.AddCommand(approveDelete)
 
+	refreshIdentity := &cobra.Command{
+		Use:   "refresh-identity <did>",
+		Short: "Re-emit an identity event so relays/AppViews re-resolve the handle",
+		Long: "Emits a fresh #identity firehose event for the account without\n" +
+			"submitting a PLC operation. Use it to clear a stuck \"Invalid Handle\"\n" +
+			"once DNS and the DID document are already correct. A relay must be\n" +
+			"crawling this PDS (see: robby relay request-crawl) for it to take effect.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out map[string]any
+			if err := adminRequest(http.MethodPost, "net.vrypan.robby.admin.refreshIdentity", map[string]any{
+				"did": args[0],
+			}, &out); err != nil {
+				return err
+			}
+			fmt.Printf("identity event emitted for %v (handle=%v)\n", out["did"], out["handle"])
+			return nil
+		},
+	}
+	cmd.AddCommand(refreshIdentity)
+
 	return cmd
 }
 

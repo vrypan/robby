@@ -323,6 +323,37 @@ func (s *Server) handleAdminTakedownAccount(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{})
 }
 
+type adminRefreshIdentityInput struct {
+	DID string `json:"did"`
+}
+
+// handleAdminRefreshIdentity re-emits an #identity firehose event for an
+// account without changing anything. It exists to nudge relays and AppViews
+// to re-resolve a handle that has gone stale (e.g. shown as "Invalid Handle"
+// / handle.invalid) after a handle change, once DNS and the DID document are
+// already correct. It submits no PLC operation.
+func (s *Server) handleAdminRefreshIdentity(w http.ResponseWriter, r *http.Request) {
+	var in adminRefreshIdentityInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed request body")
+		return
+	}
+	if in.DID == "" {
+		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "did is required")
+		return
+	}
+	acct, err := s.store.GetAccountByDID(r.Context(), in.DID)
+	if err != nil {
+		writeXRPCError(w, http.StatusNotFound, "NotFound", "account not found")
+		return
+	}
+	if err := s.emitIdentityEvent(r.Context(), acct.DID, acct.Handle); err != nil {
+		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to sequence identity event: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"did": acct.DID, "handle": acct.Handle})
+}
+
 func randomToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
