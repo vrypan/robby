@@ -3,9 +3,16 @@ package xrpc
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
+)
+
+const (
+	untrustedResolutionTimeout = 10 * time.Second
+	maxDIDDocumentBytes        = 1 << 20
 )
 
 // proxyHTTPClient is the HTTP client used for outbound service-proxy
@@ -22,6 +29,78 @@ var proxyHTTPClient = &http.Client{
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	},
+}
+
+// newUntrustedResolutionHTTPClient is used for client-selected did:web and
+// handle lookups. Direct IP dialing preserves the URL hostname for TLS SNI
+// and certificate verification while preventing DNS rebinding.
+func newUntrustedResolutionHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: untrustedResolutionTimeout,
+		Transport: maxResponseBodyTransport{
+			base:  newSafeTransport(),
+			limit: maxDIDDocumentBytes,
+		},
+		CheckRedirect: sameHTTPSOriginRedirect,
+	}
+}
+
+func newSafeTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:                 nil,
+		DialContext:           safeDialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+}
+
+func sameHTTPSOriginRedirect(req *http.Request, via []*http.Request) error {
+	if req.URL.Scheme != "https" || len(via) == 0 || req.URL.Host != via[0].URL.Host {
+		return http.ErrUseLastResponse
+	}
+	return nil
+}
+
+type maxResponseBodyTransport struct {
+	base  http.RoundTripper
+	limit int64
+}
+
+func (t maxResponseBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.Body == nil {
+		return resp, err
+	}
+	if resp.ContentLength > t.limit {
+		resp.Body.Close()
+		return nil, fmt.Errorf("response body exceeds %d byte limit", t.limit)
+	}
+	resp.Body = &maxReadCloser{ReadCloser: resp.Body, remaining: t.limit}
+	return resp, nil
+}
+
+type maxReadCloser struct {
+	io.ReadCloser
+	remaining int64
+}
+
+func (r *maxReadCloser) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var extra [1]byte
+		n, err := r.ReadCloser.Read(extra[:])
+		if n > 0 {
+			return 0, fmt.Errorf("response body exceeds limit")
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.ReadCloser.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -61,22 +140,34 @@ func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error
 // isPublicIP reports whether ip is a globally-routable public address,
 // excluding loopback, link-local, private (RFC1918/ULA), multicast,
 // unspecified, and IPv4-mapped-into-private ranges.
+var nonPublicPrefixes = mustPrefixes(
+	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+	"169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+	"192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24",
+	"203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b:1::/48", "100::/64",
+	"2001:2::/48", "2001:db8::/32", "fc00::/7", "fe80::/10", "ff00::/8",
+)
+
+func mustPrefixes(values ...string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		prefixes = append(prefixes, netip.MustParsePrefix(value))
+	}
+	return prefixes
+}
+
 func isPublicIP(ip net.IP) bool {
-	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
 		return false
 	}
-	// Explicitly reject the cloud-metadata address (defense in depth; it
-	// is link-local and already covered, but make the intent clear) and
-	// IPv4/IPv6 shared/reserved ranges not covered above.
-	if v4 := ip.To4(); v4 != nil {
-		// 100.64.0.0/10 (CGNAT), 192.0.0.0/24, 198.18.0.0/15 (benchmarking)
-		switch {
-		case v4[0] == 100 && v4[1]&0xc0 == 64:
-			return false
-		case v4[0] == 192 && v4[1] == 0 && v4[2] == 0:
-			return false
-		case v4[0] == 198 && (v4[1] == 18 || v4[1] == 19):
+	addr = addr.Unmap()
+	if !addr.IsGlobalUnicast() {
+		return false
+	}
+	for _, prefix := range nonPublicPrefixes {
+		if prefix.Contains(addr) {
 			return false
 		}
 	}

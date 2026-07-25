@@ -198,7 +198,9 @@ func (s *Server) handleResolveHandle(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "invalid handle")
 		return
 	}
-	did, err := s.dir.ResolveHandle(r.Context(), parsed)
+	ctx, cancel := context.WithTimeout(r.Context(), untrustedResolutionTimeout)
+	defer cancel()
+	did, err := s.untrustedDir.ResolveHandle(ctx, parsed)
 	if err != nil {
 		writeXRPCError(w, http.StatusBadRequest, "UnableToResolveHandle", "could not resolve handle")
 		return
