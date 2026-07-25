@@ -45,6 +45,12 @@ func (s *Server) handleSubscribeRepos(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Log firehose consumers at connect and disconnect: a long-lived
+	// websocket otherwise wouldn't appear in the request log until it
+	// closes, hiding (e.g.) a relay that's actively subscribed.
+	s.log.Info("subscribeRepos: consumer connected", "remote", r.RemoteAddr, "cursor", r.URL.Query().Get("cursor"), "user_agent", r.UserAgent())
+	defer s.log.Info("subscribeRepos: consumer disconnected", "remote", r.RemoteAddr)
+
 	liveCh, cancel := s.seq.Subscribe()
 	defer cancel()
 
