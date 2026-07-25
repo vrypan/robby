@@ -10,7 +10,9 @@ import (
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 
+	"github.com/vrypan/pds-light/internal/actorstore"
 	"github.com/vrypan/pds-light/internal/config"
+	"github.com/vrypan/pds-light/internal/repoops"
 	"github.com/vrypan/pds-light/internal/store"
 )
 
@@ -22,23 +24,28 @@ func ServiceDID(cfg *config.Config) string {
 }
 
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	dir   *identity.BaseDirectory
-	log   *slog.Logger
+	cfg    *config.Config
+	store  *store.Store
+	dir    *identity.BaseDirectory
+	actors *actorstore.Manager
+	writer *repoops.Writer
+	log    *slog.Logger
 }
 
 func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
+	actors := actorstore.NewManager(cfg.DataDir)
 	return &Server{
 		cfg:   cfg,
 		store: st,
 		dir: &identity.BaseDirectory{
 			PLCURL: cfg.PLCURL,
 		},
-		log: log,
+		actors: actors,
+		writer: repoops.NewWriter(actors),
+		log:    log,
 	}
 }
 
@@ -54,6 +61,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /xrpc/com.atproto.server.deleteSession", s.handleDeleteSession)
 	mux.HandleFunc("GET /xrpc/com.atproto.server.getSession", s.handleGetSession)
 	mux.HandleFunc("GET /xrpc/com.atproto.identity.resolveHandle", s.handleResolveHandle)
+
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.createRecord", s.handleCreateRecord)
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.putRecord", s.handlePutRecord)
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.deleteRecord", s.handleDeleteRecord)
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.applyWrites", s.handleApplyWrites)
+	mux.HandleFunc("GET /xrpc/com.atproto.repo.getRecord", s.handleGetRecord)
+	mux.HandleFunc("GET /xrpc/com.atproto.repo.listRecords", s.handleListRecords)
+	mux.HandleFunc("GET /xrpc/com.atproto.repo.describeRepo", s.handleDescribeRepo)
+	mux.HandleFunc("POST /xrpc/com.atproto.repo.uploadBlob", s.handleUploadBlob)
 
 	mux.HandleFunc("POST /xrpc/com.pdslight.admin.createAccount", s.requireAdmin(s.handleAdminCreateAccount))
 	mux.HandleFunc("GET /xrpc/com.pdslight.admin.listAccounts", s.requireAdmin(s.handleAdminListAccounts))
