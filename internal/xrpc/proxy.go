@@ -88,9 +88,7 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 		writeXRPCError(w, http.StatusInternalServerError, "InternalServerError", "failed to build proxied request")
 		return
 	}
-	if ct := r.Header.Get("Content-Type"); ct != "" {
-		outReq.Header.Set("Content-Type", ct)
-	}
+	copyProxyHeaders(outReq.Header, r.Header)
 	outReq.Header.Set("User-Agent", "pds-light-proxy")
 
 	if callerDID, ok := s.optionalAccessToken(r); ok {
@@ -118,6 +116,37 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// hopByHopHeaders are per-RFC-7230 connection-scoped headers that must
+// not be forwarded by a proxy, plus Authorization and Content-Length,
+// which we set explicitly ourselves on the outbound request.
+var hopByHopHeaders = map[string]struct{}{
+	"Connection":          {},
+	"Keep-Alive":          {},
+	"Proxy-Authenticate":  {},
+	"Proxy-Authorization": {},
+	"Te":                  {},
+	"Trailer":             {},
+	"Transfer-Encoding":   {},
+	"Upgrade":             {},
+	"Authorization":       {},
+	"Content-Length":      {},
+}
+
+// copyProxyHeaders forwards everything the client sent (Accept-Language,
+// Content-Type, CF-IPCountry/CF-Connecting-IP for geolocation-dependent
+// AppView features, atproto-accept-labelers, etc.) except hop-by-hop and
+// auth headers we handle separately.
+func copyProxyHeaders(dst, src http.Header) {
+	for k, vs := range src {
+		if _, skip := hopByHopHeaders[k]; skip {
+			continue
+		}
+		for _, v := range vs {
+			dst.Add(k, v)
+		}
+	}
 }
 
 // optionalAccessToken validates a bearer access token if present, but

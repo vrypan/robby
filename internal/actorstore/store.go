@@ -87,6 +87,12 @@ CREATE TABLE IF NOT EXISTS blob_refs (
 	rkey       TEXT NOT NULL,
 	PRIMARY KEY (blob_cid, collection, rkey)
 );
+
+CREATE TABLE IF NOT EXISTS preferences (
+	id         INTEGER PRIMARY KEY CHECK (id = 1),
+	value      TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrating actor db: %w", err)
@@ -391,6 +397,33 @@ func (s *Store) ListBlobCIDs(ctx context.Context, cursor string, limit int) ([]c
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// GetPreferences returns the raw JSON `preferences` array previously
+// stored via SetPreferences, or ErrNotFound if none has been set yet.
+func (s *Store) GetPreferences(ctx context.Context) (string, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT value FROM preferences WHERE id = 1`)
+	var value string
+	if err := row.Scan(&value); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("getting preferences: %w", err)
+	}
+	return value, nil
+}
+
+// SetPreferences stores the raw JSON `preferences` array (app.bsky.actor.
+// putPreferences), replacing whatever was there before.
+func (s *Store) SetPreferences(ctx context.Context, value string) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO preferences (id, value, updated_at) VALUES (1, ?, ?)
+ON CONFLICT (id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		value, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("setting preferences: %w", err)
+	}
+	return nil
 }
 
 // ClearRepo wipes all repo state (blocks, repo root, record index, blob

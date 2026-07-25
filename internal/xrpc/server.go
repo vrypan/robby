@@ -90,6 +90,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /xrpc/com.atproto.identity.signPlcOperation", s.handleSignPlcOperation)
 	mux.HandleFunc("POST /xrpc/com.atproto.identity.submitPlcOperation", s.handleSubmitPlcOperation)
 
+	// app.bsky.actor.{get,put}Preferences are private per-account data the
+	// PDS serves directly, per the lexicon — not proxied to the AppView
+	// like other app.bsky.* reads.
+	mux.HandleFunc("GET /xrpc/app.bsky.actor.getPreferences", s.handleGetPreferences)
+	mux.HandleFunc("POST /xrpc/app.bsky.actor.putPreferences", s.handlePutPreferences)
+
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.createRecord", s.handleCreateRecord)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.putRecord", s.handlePutRecord)
 	mux.HandleFunc("POST /xrpc/com.atproto.repo.deleteRecord", s.handleDeleteRecord)
