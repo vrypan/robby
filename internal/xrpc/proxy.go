@@ -110,6 +110,13 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	for k, vs := range resp.Header {
+		// Our own CORS middleware already set these correctly ahead of
+		// the mux; forwarding the upstream's copy too would duplicate
+		// the header, which browsers treat as invalid and reject the
+		// whole response outright (even though the request succeeded).
+		if strings.HasPrefix(k, "Access-Control-") {
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
