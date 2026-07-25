@@ -3,6 +3,8 @@
 package xrpc
 
 import (
+	"bufio"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -146,8 +148,20 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Atproto-Accept-Labelers, Atproto-Proxy")
-		w.Header().Set("Access-Control-Expose-Headers", "Atproto-Content-Labelers, Atproto-Repo-Rev")
+		// Reflect whatever headers the client asks for in the preflight
+		// rather than a fixed allow-list: the bsky app sends custom
+		// headers (x-bsky-topics, atproto-*, etc.) that vary by endpoint
+		// and version, and any one not listed here fails the preflight
+		// and blocks the request before it reaches us. Fall back to a
+		// sensible default for non-preflight requests.
+		if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+		} else {
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Atproto-Accept-Labelers, Atproto-Proxy")
+		}
+		w.Header().Set("Access-Control-Expose-Headers", "Atproto-Content-Labelers, Atproto-Repo-Rev, Content-Type")
+		w.Header().Add("Vary", "Origin")
+		w.Header().Add("Vary", "Access-Control-Request-Headers")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -157,11 +171,34 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rec *statusRecorder) WriteHeader(status int) {
+	rec.status = status
+	rec.ResponseWriter.WriteHeader(status)
+}
+
+// Hijack forwards to the underlying ResponseWriter so subscribeRepos'
+// websocket upgrade (which needs http.Hijacker) still works through this
+// wrapper — embedding the http.ResponseWriter interface alone doesn't
+// promote Hijack, since that's not part of the interface.
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
+	}
+	return hj.Hijack()
+}
+
 func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Info("request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "query", r.URL.RawQuery, "duration", time.Since(start))
 	})
 }
 

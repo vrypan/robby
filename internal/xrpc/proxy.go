@@ -125,9 +125,15 @@ func (s *Server) handleServiceProxy(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
-// hopByHopHeaders are per-RFC-7230 connection-scoped headers that must
-// not be forwarded by a proxy, plus Authorization and Content-Length,
-// which we set explicitly ourselves on the outbound request.
+// hopByHopHeaders are headers we never forward to the upstream: the
+// per-RFC-7230 connection-scoped ones; Authorization/Content-Length,
+// which we set explicitly ourselves; and conditional-request headers.
+// We're not a caching layer, so a client's cached ETag/Last-Modified
+// from a *previous* proxied response must never be forwarded — doing
+// so gets a legitimate 304 with an empty body back from the upstream,
+// which client fetch layers that don't participate in the browser's
+// HTTP cache (as opposed to curl or a raw browser navigation) can't
+// do anything with.
 var hopByHopHeaders = map[string]struct{}{
 	"Connection":          {},
 	"Keep-Alive":          {},
@@ -139,6 +145,12 @@ var hopByHopHeaders = map[string]struct{}{
 	"Upgrade":             {},
 	"Authorization":       {},
 	"Content-Length":      {},
+	"If-None-Match":       {},
+	"If-Modified-Since":   {},
+	"If-Match":            {},
+	"If-Unmodified-Since": {},
+	"If-Range":            {},
+	"Range":               {},
 }
 
 // copyProxyHeaders forwards everything the client sent (Accept-Language,
