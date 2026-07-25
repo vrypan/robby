@@ -123,7 +123,32 @@ func (s *Server) Handler() http.Handler {
 	// exact-pattern registrations above priority over this subtree match.
 	mux.HandleFunc("/xrpc/", s.handleServiceProxy)
 
-	return withLogging(s.log, mux)
+	return withCORS(withLogging(s.log, mux))
+}
+
+// withCORS lets browser-based clients (e.g. the bsky.app web app) talk to
+// the API directly. It must wrap everything, outermost: an OPTIONS
+// preflight doesn't match any of our method-specific routes above, so
+// without this it would otherwise fall through to the service-proxy
+// catch-all and get forwarded to the AppView instead of being answered
+// here.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Atproto-Accept-Labelers, Atproto-Proxy")
+		w.Header().Set("Access-Control-Expose-Headers", "Atproto-Content-Labelers, Atproto-Repo-Rev")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func withLogging(log *slog.Logger, next http.Handler) http.Handler {
