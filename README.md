@@ -5,10 +5,10 @@ number of known users. Single static Go binary, SQLite storage, blobs on
 disk. See [`plans/PLAN.md`](plans/PLAN.md) for the full design and build
 plan.
 
-**Status:** phases 1–4 implemented — identity/auth, repo core (records,
-blobs), sync/firehose (`subscribeRepos`), and app integration (service
-proxying, app passwords). Account migration and OAuth are not yet
-built.
+**Status:** phases 1–5 implemented — identity/auth, repo core (records,
+blobs), sync/firehose (`subscribeRepos`), app integration (service
+proxying, app passwords), and account migration/lifecycle. Only OAuth
+(phase 6, deferred) is not yet built.
 
 ## Requirements
 
@@ -89,10 +89,46 @@ address and admin password):
 
 # Deactivate an account
 ./pdslight --config pdslight.toml account deactivate <did>
+
+# Take down an account (moderation action; blocks login entirely)
+./pdslight --config pdslight.toml account takedown <did>
+
+# Issue a one-time token authorizing identity.signPlcOperation or
+# server.deleteAccount for an account — the admin-CLI-confirmation
+# stand-in for email-gated confirmation flows. Share the printed token
+# with the account owner out of band; it expires in 15 minutes.
+./pdslight --config pdslight.toml account approve-plc-op <did>
+./pdslight --config pdslight.toml account approve-delete <did>
 ```
 
-There are no invite codes and no self-serve signup — this is meant for
-a handful of accounts you create yourself.
+There are no invite codes and no self-serve signup for brand-new
+accounts — those are admin-created. Migrating an *existing* DID in from
+another PDS is supported over XRPC (`server.createAccount` with a `did`
+and a service-auth token proving control of it) — see below.
+
+### Migrating an account in or out
+
+Because service-auth verification, PLC identity resolution, and
+`repo.importRepo`/`sync.getRepo` are all implemented, a real AT Protocol
+client — `goat account migrate` — can move a DID onto or off this
+server:
+
+```sh
+# On the OLD host, issue a token so the migration can update identity:
+old-host$ pdslight --config old.toml account approve-plc-op <did>
+
+# Then, authenticated against the OLD host:
+goat account migrate --pds-host https://new.pds.example.com \
+  --new-handle alice.new.pds.example.com \
+  --new-password <new-password> \
+  --plc-token <token from approve-plc-op>
+```
+
+This creates the account on the new host, imports the repo and blobs,
+updates the DID's PLC document to point at the new host/keys,
+deactivates the account on the old host, and activates it on the new
+one — the whole flow verified end-to-end between two pds-light
+instances.
 
 ### Handles
 
@@ -151,7 +187,15 @@ goat xrpc procedure @pds com.atproto.server.revokeAppPassword name=my-app
 `server.describeServer`, `server.createSession`, `refreshSession`,
 `deleteSession`, `getSession`, `identity.resolveHandle`,
 `/.well-known/atproto-did`, `server.getServiceAuth`,
-`server.createAppPassword`, `listAppPasswords`, `revokeAppPassword`
+`server.createAppPassword`, `listAppPasswords`, `revokeAppPassword`,
+`identity.updateHandle`
+
+**Migration & lifecycle**
+`server.reserveSigningKey`, `createAccount` (migration-in),
+`repo.importRepo`, `repo.listMissingBlobs`, `server.activateAccount`,
+`deactivateAccount`, `deleteAccount`, `checkAccountStatus`,
+`identity.getRecommendedDidCredentials`, `signPlcOperation`,
+`submitPlcOperation`
 
 **Repo (records & blobs)**
 `repo.createRecord`, `putRecord`, `deleteRecord`, `applyWrites`,
@@ -170,13 +214,21 @@ see below.
 
 **Admin** (`com.pdslight.admin.*`, HTTP Basic auth, not part of the
 public AT Protocol lexicon)
-`createAccount`, `listAccounts`, `setPassword`, `deactivateAccount`.
+`createAccount`, `listAccounts`, `setPassword`, `deactivateAccount`,
+`takedownAccount`, `approveToken`.
 
 ## Not yet implemented
 
-- Account migration (`importRepo`, `reserveSigningKey`, etc.),
-  handle/key rotation, and takedown status — phase 5.
 - OAuth authorization server — phase 6 (deferred).
+
+## Known simplifications
+
+- `sync.getRecord`/`getRepo` return the full block set rather than a
+  minimal MST inclusion proof (indigo's `mst` package doesn't expose
+  proof generation) — still valid, just non-minimal.
+- `server.deleteAccount` doesn't purge the actor's repo DB or blob files
+  on disk; it removes the account and its auth/token state from
+  `accounts.db` only.
 
 ## Development
 
