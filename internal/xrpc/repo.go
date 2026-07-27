@@ -452,7 +452,9 @@ func (s *Server) handleDescribeRepo(w http.ResponseWriter, r *http.Request) {
 const maxBlobSize = 100 << 20 // 100 MiB, matching the Cloudflare body limit from PLAN.md Ops.
 
 func (s *Server) handleUploadBlob(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	// Migratable: a migrating account is deactivated until the final
+	// activateAccount step, and transferring blobs happens before that.
+	did, ok := s.requireMigratableAccessToken(w, r)
 	if !ok {
 		return
 	}

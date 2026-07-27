@@ -40,7 +40,8 @@ type putPreferencesInput struct {
 }
 
 func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
-	did, ok := s.requireAccessToken(w, r)
+	// Migratable: preferences are copied across before activateAccount.
+	did, ok := s.requireMigratableAccessToken(w, r)
 	if !ok {
 		return
 	}

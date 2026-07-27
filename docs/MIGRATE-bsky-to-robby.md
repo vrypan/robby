@@ -239,28 +239,18 @@ robby host.
 12. `NEW  com.atproto.server.activateAccount`.
 13. `OLD  com.atproto.server.deactivateAccount`.
 
-Steps 5, 6 (`listMissingBlobs`) and 12 accept a migration session on a
-deactivated account (`requireMigrationAccessToken`); the rest require a
-privileged session on an **active** account — see the known limitation
-below.
+Steps 5–7 and 12 all run against an account that is still deactivated,
+and are authorized accordingly: `importRepo`, `listMissingBlobs` and
+`activateAccount` require a privileged migration session, while
+`uploadBlob` and `putPreferences` accept an ordinary session on a
+deactivated account (they are everyday operations too, so they do not
+demand privileged credentials). Every other endpoint requires an active
+account.
 
-## Known limitation: blob upload during migration
+A taken-down account is refused at all of them, whatever the caller
+asks for.
 
-`com.atproto.repo.uploadBlob` and `app.bsky.actor.putPreferences`
-currently call `requireAccessToken`, which since the credential-scoping
-work (commit `81f0ab1`) rejects any account that is not `active`. A
-migrating account is `deactivated` from creation (step 3) until
-activation (step 12), so **steps 6 and 7 will fail with 401 for as long
-as that ordering holds**.
-
-In practice this means a migration carrying media (any account with an
-avatar, banner or image posts) will import the repo successfully but
-fail to transfer blobs, leaving records that reference blobs the new
-host does not have. `listMissingBlobs` will keep reporting them.
-
-Workaround until this is fixed: complete the migration through step 12
-so the account is active, then re-run the blob transfer (step 6) and
-preferences copy (step 7) against the now-active account. Verify with:
+After the migration, confirm nothing was left behind:
 
 ```sh
 curl -s "https://pds.vrypan.net/xrpc/com.atproto.repo.listMissingBlobs" \
@@ -268,8 +258,3 @@ curl -s "https://pds.vrypan.net/xrpc/com.atproto.repo.listMissingBlobs" \
 ```
 
 An empty `blobs` array means every referenced blob is present.
-
-The proper fix is to let these two endpoints accept a migration session,
-as `importRepo` and `listMissingBlobs` already do — plan 003 scoped the
-deactivated-account exception to repo import, DID credentials and
-activation, and did not account for blob upload.

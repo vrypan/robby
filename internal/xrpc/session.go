@@ -253,7 +253,32 @@ func (s *Server) requireMigrationAccessToken(w http.ResponseWriter, r *http.Requ
 	return parsed.DID, true
 }
 
-func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request, privileged, allowInactive bool) (*auth.ParsedToken, bool) {
+// requireMigratableAccessToken permits ordinary (unprivileged) access, and
+// additionally accepts a deactivated account. Uploading blobs and copying
+// preferences are steps of the migration-in flow, which runs entirely
+// before server.activateAccount — but they are also everyday operations an
+// app-password client performs, so unlike requireMigrationAccessToken this
+// does not demand a privileged credential.
+func (s *Server) requireMigratableAccessToken(w http.ResponseWriter, r *http.Request) (string, bool) {
+	parsed, ok := s.requirePrincipal(w, r, false, true)
+	if !ok {
+		return "", false
+	}
+	return parsed.DID, true
+}
+
+// statusPermitted reports whether an account in this status may act. Only
+// the deactivated state is ever excepted, and only for endpoints in the
+// migration-in flow: a taken-down account is never permitted, no matter
+// what the caller asks for.
+func statusPermitted(status string, allowDeactivated bool) bool {
+	if status == store.StatusActive {
+		return true
+	}
+	return allowDeactivated && status == store.StatusDeactivated
+}
+
+func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request, privileged, allowDeactivated bool) (*auth.ParsedToken, bool) {
 	tokenString, ok := bearerToken(r)
 	if !ok {
 		writeXRPCError(w, http.StatusUnauthorized, "AuthenticationRequired", "missing bearer token")
@@ -265,7 +290,7 @@ func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request, privil
 		return nil, false
 	}
 	acct, err := s.store.GetAccountByDID(r.Context(), parsed.DID)
-	if err != nil || (!allowInactive && acct.Status != store.StatusActive) || acct.AuthVersion != parsed.AuthVersion {
+	if err != nil || !statusPermitted(acct.Status, allowDeactivated) || acct.AuthVersion != parsed.AuthVersion {
 		writeXRPCError(w, http.StatusUnauthorized, "ExpiredToken", "session has been revoked")
 		return nil, false
 	}
