@@ -1,5 +1,9 @@
 # robby
 
+> [!CAUTION] Experimental!
+> This pice of software is not production-ready.
+>
+
 A lightweight AT Protocol Personal Data Server (PDS), built for a small
 number of known users. Single static Go binary, SQLite storage, blobs on
 disk. See [`plans/PLAN.md`](plans/PLAN.md) for the full design and build
