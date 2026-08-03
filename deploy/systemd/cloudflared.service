@@ -1,0 +1,31 @@
+[Unit]
+Description=cloudflared tunnel (robby ingress)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# cloudflared supports sd_notify readiness.
+Type=notify
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel --config /etc/cloudflared/config.yml run
+User=cloudflared
+Group=cloudflared
+
+Restart=always
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+
+# Lighter hardening than robby.service: cloudflared is a third-party
+# binary that dials out over QUIC/UDP and HTTP/2 and manages its own
+# connection pool; keep the sandbox conservative.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

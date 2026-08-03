@@ -55,6 +55,7 @@ $(PLATFORMS):
 		go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o $(DIST)/$(BINARY)_$@/$(BINARY) $(PKG)
 	@cp README.md $(DIST)/$(BINARY)_$@/ 2>/dev/null || true
+	@cp -r deploy $(DIST)/$(BINARY)_$@/ 2>/dev/null || true
 	@tar -czf $(DIST)/$(BINARY)_$(VERSION)_$@.tar.gz \
 		-C $(DIST) $(BINARY)_$@
 	@echo "  -> $(DIST)/$(BINARY)_$(VERSION)_$@.tar.gz"

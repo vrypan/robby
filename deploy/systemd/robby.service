@@ -1,0 +1,59 @@
+[Unit]
+Description=robby — a lightweight AT Protocol PDS
+Documentation=https://github.com/vrypan/robby
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/robby --config /etc/robby/robby.toml serve
+User=robby
+Group=robby
+
+Restart=always
+RestartSec=5s
+
+# robby shuts down cleanly on SIGINT/SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logs go to stderr; journald adds timestamps and rotation.
+StandardOutput=journal
+StandardError=journal
+
+# systemd creates /var/lib/robby owned by the service user. The config's
+# data_dir must point there.
+StateDirectory=robby
+StateDirectoryMode=0700
+
+# Hardening. robby needs exactly two writable paths: its state directory
+# (granted by StateDirectory above) and /etc/robby — but the latter only
+# on FIRST run, when it generates jwt_secret/admin_password and writes
+# them back into the config. Once the config holds both values you can
+# delete the ReadWritePaths line.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/robby
+ProtectHome=yes
+ProtectProc=invisible
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
