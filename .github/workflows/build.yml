@@ -1,0 +1,98 @@
+name: Build binaries
+
+# Manual only — nothing is built on push.
+# Pick the branch or tag to build from in the "Run workflow" dropdown.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Attach the binaries to a GitHub release (run from a tag)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so `git describe` can name untagged builds.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Don't ship a binary that fails its own tests.
+      - name: Test
+        run: |
+          make vet
+          make fmt
+          make test
+
+      - name: Determine version
+        id: version
+        run: |
+          # What matters for releasing is whether the *commit* is tagged,
+          # not whether a tag was picked in the dropdown: running from a
+          # branch whose HEAD is tagged is perfectly releasable.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+            tagged=true
+          elif version="$(git describe --exact-match --tags HEAD 2>/dev/null)"; then
+            tagged=true
+          else
+            version="$(git describe --tags --always --dirty)"
+            tagged=false
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tagged=$tagged" >> "$GITHUB_OUTPUT"
+          echo "Building $version (tagged: $tagged)"
+
+      - name: Refuse to release an untagged commit
+        if: ${{ inputs.release && steps.version.outputs.tagged != 'true' }}
+        run: |
+          echo "::error::Cannot release ${{ steps.version.outputs.version }}: this commit has no tag."
+          echo "A release needs a tag so the version is meaningful."
+          echo "  git tag v0.3.0 && git push origin v0.3.0"
+          echo "Then re-run this workflow (from the tag, or from a branch"
+          echo "whose HEAD is that commit)."
+          exit 1
+
+      # The Makefile owns the platform list, ldflags, and tarball naming;
+      # the workflow only pins the version it already validated above.
+      - name: Build
+        run: |
+          make release VERSION="${{ steps.version.outputs.version }}"
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS
+          ls -lh *.tar.gz SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: robby_${{ steps.version.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          retention-days: 30
+
+      # gh is preinstalled on the runner, so this needs no third-party action.
+      - name: Publish release
+        if: ${{ inputs.release && steps.version.outputs.tagged == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/*.tar.gz dist/SHA256SUMS --clobber
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --generate-notes \
+              dist/*.tar.gz dist/SHA256SUMS
+          fi

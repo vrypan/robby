@@ -210,8 +210,12 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
+// Version is what the health endpoint reports after the "robby/" prefix.
+// cmd/robby stamps it at startup; the default covers embedded/test use.
+var Version = "devel"
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": "robby/0.1.0"})
+	writeJSON(w, http.StatusOK, map[string]any{"version": "robby/" + Version})
 }
 
 func (s *Server) handleWellKnownDID(w http.ResponseWriter, r *http.Request) {

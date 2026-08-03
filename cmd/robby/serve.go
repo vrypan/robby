@@ -47,6 +47,7 @@ func runServe() error {
 	defer st.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	xrpc.Version = Version()
 	srv, err := xrpc.NewServer(cfg, st, log)
 	if err != nil {
 		return err
