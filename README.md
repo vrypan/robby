@@ -46,6 +46,18 @@ appview_did  = "did:web:api.bsky.app"
 relays       = ["https://bsky.network"]
 ```
 
+`admin_networks` restricts the admin API (`net.vrypan.robby.admin.*`)
+to a list of IPs/CIDRs. It defaults to loopback only, which keeps the
+local admin CLI working while making the admin API unreachable through
+a public hostname. To administer from your LAN, add its subnet:
+
+```toml
+admin_networks = ["127.0.0.0/8", "::1/128", "192.168.1.0/24"]
+```
+
+Requests arriving through a Cloudflare Tunnel are judged by the real
+client IP (`CF-Connecting-IP`), not the tunnel's loopback connection.
+
 `jwt_secret` and `admin_password` are generated automatically on first
 run and written back into the config file if left blank — just don't
 commit that file anywhere public. If it may have been exposed, rotate

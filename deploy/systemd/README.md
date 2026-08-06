@@ -54,6 +54,11 @@ Two values matter to the unit file:
 - `listen` should bind localhost when cloudflared runs on the same box;
   nothing else needs to reach the port directly.
 
+The admin API is additionally gated by `admin_networks` (default:
+loopback only), so even through the tunnel it is unreachable from the
+internet. Add your LAN's CIDR (e.g. `admin_networks = ["127.0.0.0/8",
+"::1/128", "192.168.1.0/24"]`) if you administer from another machine.
+
 Leave `jwt_secret` and `admin_password` unset — robby generates them on
 first start and writes them back into the config. That write-back is why
 the config must be owned by the service user:

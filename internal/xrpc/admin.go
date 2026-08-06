@@ -48,6 +48,12 @@ func defaultSeedRecords() []repoops.WriteOp {
 // configured admin password. Username is ignored.
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		addr, ok := clientAddr(r)
+		if !ok || !addrInPrefixes(addr, s.adminNets) {
+			s.log.Warn("admin request from disallowed address", "addr", r.RemoteAddr, "client", addr, "path", r.URL.Path)
+			writeXRPCError(w, http.StatusForbidden, "Forbidden", "admin API is not reachable from this network")
+			return
+		}
 		_, pass, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.cfg.AdminPassword)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="robby-admin"`)

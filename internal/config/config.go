@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 
@@ -21,15 +22,22 @@ type Config struct {
 	Relays        []string `toml:"relays"`
 	JWTSecret     string   `toml:"jwt_secret"`
 	AdminPassword string   `toml:"admin_password"`
+	// AdminNetworks lists the CIDRs allowed to call the admin API
+	// (net.vrypan.robby.admin.*). Requests arriving through a Cloudflare
+	// Tunnel are judged by their CF-Connecting-IP, so the default —
+	// loopback only — shuts the admin API off from the public hostname
+	// while keeping the local admin CLI working.
+	AdminNetworks []string `toml:"admin_networks"`
 }
 
 func defaults() Config {
 	return Config{
-		Listen:     ":3000",
-		PLCURL:     "https://plc.directory",
-		AppviewURL: "https://api.bsky.app",
-		AppviewDID: "did:web:api.bsky.app",
-		Relays:     []string{"https://bsky.network"},
+		Listen:        ":3000",
+		PLCURL:        "https://plc.directory",
+		AppviewURL:    "https://api.bsky.app",
+		AppviewDID:    "did:web:api.bsky.app",
+		Relays:        []string{"https://bsky.network"},
+		AdminNetworks: []string{"127.0.0.0/8", "::1/128"},
 	}
 }
 
@@ -55,6 +63,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("config %s: data_dir is required", path)
+	}
+	if _, err := cfg.AdminPrefixes(); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 
 	changed := false
@@ -88,6 +99,24 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// AdminPrefixes parses AdminNetworks into netip prefixes. Bare IPs are
+// accepted as single-address networks.
+func (c *Config) AdminPrefixes() ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(c.AdminNetworks))
+	for _, s := range c.AdminNetworks {
+		if addr, err := netip.ParseAddr(s); err == nil {
+			prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+			continue
+		}
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, fmt.Errorf("admin_networks: %q is not a valid IP or CIDR", s)
+		}
+		prefixes = append(prefixes, p)
+	}
+	return prefixes, nil
 }
 
 func randomHex(n int) (string, error) {

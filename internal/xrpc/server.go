@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 
@@ -37,6 +40,12 @@ type Server struct {
 	writer       *repoops.Writer
 	seq          *sequencer.Sequencer
 	log          *slog.Logger
+	// adminNets are the networks allowed to call the admin API.
+	adminNets []netip.Prefix
+	// loginLimiter caps createSession attempts per client IP: password
+	// verification is deliberately expensive (scrypt), so unauthenticated
+	// login attempts are both a brute-force and a CPU-exhaustion vector.
+	loginLimiter *ipRateLimiter
 }
 
 func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error) {
@@ -58,6 +67,10 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 		// bidirectional check isn't needed for those call sites.
 		SkipHandleVerification: true,
 	}
+	adminNets, err := cfg.AdminPrefixes()
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
 		cfg:   cfg,
 		store: st,
@@ -65,10 +78,14 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 		untrustedDir: &identity.BaseDirectory{
 			HTTPClient: *newUntrustedResolutionHTTPClient(),
 		},
-		actors: actors,
-		writer: writer,
-		seq:    seq,
-		log:    log,
+		actors:    actors,
+		writer:    writer,
+		seq:       seq,
+		log:       log,
+		adminNets: adminNets,
+		// 30 attempts sustained per hour with a burst of 10: far above any
+		// human login pattern, far below a useful brute-force rate.
+		loginLimiter: newIPRateLimiter(rate.Every(2*time.Minute), 10),
 	}, nil
 }
 
