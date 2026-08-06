@@ -38,16 +38,6 @@ type sessionOutput struct {
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	// Rate-limit before touching the body or the store: every attempt
-	// below this point costs an scrypt verification. Unparseable client
-	// addresses all share the zero-Addr bucket rather than bypassing the
-	// limit.
-	addr, _ := clientAddr(r)
-	if !s.loginLimiter.Allow(addr) {
-		writeXRPCError(w, http.StatusTooManyRequests, "RateLimitExceeded", "too many login attempts, try again later")
-		return
-	}
-
 	var in createSessionInput
 	if err := decodeJSON(r, &in); err != nil {
 		writeXRPCError(w, http.StatusBadRequest, "InvalidRequest", "malformed request body")

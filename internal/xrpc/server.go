@@ -67,10 +67,6 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 		// bidirectional check isn't needed for those call sites.
 		SkipHandleVerification: true,
 	}
-	adminNets, err := cfg.AdminPrefixes()
-	if err != nil {
-		return nil, err
-	}
 	return &Server{
 		cfg:   cfg,
 		store: st,
@@ -82,7 +78,7 @@ func NewServer(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, 
 		writer:    writer,
 		seq:       seq,
 		log:       log,
-		adminNets: adminNets,
+		adminNets: cfg.AdminPrefixes(),
 		// 30 attempts sustained per hour with a burst of 10: far above any
 		// human login pattern, far below a useful brute-force rate.
 		loginLimiter: newIPRateLimiter(rate.Every(2*time.Minute), 10),
@@ -96,7 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /.well-known/atproto-did", s.handleWellKnownDID)
 
 	mux.HandleFunc("GET /xrpc/com.atproto.server.describeServer", s.handleDescribeServer)
-	mux.HandleFunc("POST /xrpc/com.atproto.server.createSession", s.handleCreateSession)
+	mux.HandleFunc("POST /xrpc/com.atproto.server.createSession", s.rateLimited(s.handleCreateSession))
 	mux.HandleFunc("POST /xrpc/com.atproto.server.refreshSession", s.handleRefreshSession)
 	mux.HandleFunc("POST /xrpc/com.atproto.server.deleteSession", s.handleDeleteSession)
 	mux.HandleFunc("GET /xrpc/com.atproto.server.getSession", s.handleGetSession)

@@ -18,18 +18,17 @@ func TestClientAddr(t *testing.T) {
 		name       string
 		remoteAddr string
 		cfHeader   string
-		want       string
-		wantOK     bool
+		want       string // "" means the zero (invalid) Addr
 	}{
-		{"direct LAN peer", "192.168.1.7:51234", "", "192.168.1.7", true},
-		{"loopback, no header", "127.0.0.1:51234", "", "127.0.0.1", true},
-		{"tunnel client via loopback", "127.0.0.1:51234", "203.0.113.9", "203.0.113.9", true},
+		{"direct LAN peer", "192.168.1.7:51234", "", "192.168.1.7"},
+		{"loopback, no header", "127.0.0.1:51234", "", "127.0.0.1"},
+		{"tunnel client via loopback", "127.0.0.1:51234", "203.0.113.9", "203.0.113.9"},
 		// A non-loopback peer must not be able to spoof its identity with
 		// a forged Cloudflare header.
-		{"LAN peer with forged header", "192.168.1.7:51234", "127.0.0.1", "192.168.1.7", true},
-		{"loopback with garbage header", "127.0.0.1:51234", "not-an-ip", "", false},
-		{"unparseable remote addr", "garbage", "", "", false},
-		{"ipv6 loopback with header", "[::1]:51234", "2001:4860::1", "2001:4860::1", true},
+		{"LAN peer with forged header", "192.168.1.7:51234", "127.0.0.1", "192.168.1.7"},
+		{"loopback with garbage header", "127.0.0.1:51234", "not-an-ip", ""},
+		{"unparseable remote addr", "garbage", "", ""},
+		{"ipv6 loopback with header", "[::1]:51234", "2001:4860::1", "2001:4860::1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -38,27 +37,28 @@ func TestClientAddr(t *testing.T) {
 			if tt.cfHeader != "" {
 				r.Header.Set("CF-Connecting-IP", tt.cfHeader)
 			}
-			addr, ok := clientAddr(r)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			var want netip.Addr
+			if tt.want != "" {
+				want = netip.MustParseAddr(tt.want)
 			}
-			if ok && addr != netip.MustParseAddr(tt.want) {
-				t.Fatalf("addr = %v, want %v", addr, tt.want)
+			if addr := clientAddr(r); addr != want {
+				t.Fatalf("addr = %v, want %v", addr, want)
 			}
 		})
 	}
 }
 
+// Address extraction is covered by TestClientAddr; this exercises only the
+// gate policy layered on top of it.
 func TestRequireAdminNetworkGate(t *testing.T) {
-	cfg := &config.Config{
-		AdminPassword: "sekrit",
-		AdminNetworks: []string{"127.0.0.0/8", "::1/128", "192.168.1.0/24"},
+	s := &Server{
+		cfg: &config.Config{AdminPassword: "sekrit"},
+		adminNets: []netip.Prefix{
+			netip.MustParsePrefix("127.0.0.0/8"),
+			netip.MustParsePrefix("192.168.1.0/24"),
+		},
+		log: slog.New(slog.DiscardHandler),
 	}
-	adminNets, err := cfg.AdminPrefixes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Server{cfg: cfg, adminNets: adminNets, log: slog.New(slog.DiscardHandler)}
 	handler := s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -70,10 +70,9 @@ func TestRequireAdminNetworkGate(t *testing.T) {
 		password   string
 		wantStatus int
 	}{
-		{"loopback with password", "127.0.0.1:1", "", "sekrit", http.StatusOK},
-		{"allowed LAN with password", "192.168.1.20:1", "", "sekrit", http.StatusOK},
+		{"allowed network with password", "192.168.1.20:1", "", "sekrit", http.StatusOK},
 		{"allowed network, bad password", "192.168.1.20:1", "", "wrong", http.StatusUnauthorized},
-		{"disallowed LAN", "192.168.2.20:1", "", "sekrit", http.StatusForbidden},
+		{"disallowed network", "192.168.2.20:1", "", "sekrit", http.StatusForbidden},
 		// Through the tunnel the peer is loopback but the real client is
 		// whatever CF-Connecting-IP says — public clients must be refused
 		// even with the right password.

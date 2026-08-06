@@ -168,13 +168,5 @@ func isPublicIP(ip net.IP) bool {
 		return false
 	}
 	addr = addr.Unmap()
-	if !addr.IsGlobalUnicast() {
-		return false
-	}
-	for _, prefix := range nonPublicPrefixes {
-		if prefix.Contains(addr) {
-			return false
-		}
-	}
-	return true
+	return addr.IsGlobalUnicast() && !addrInPrefixes(addr, nonPublicPrefixes)
 }

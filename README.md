@@ -47,7 +47,7 @@ relays       = ["https://bsky.network"]
 ```
 
 `admin_networks` restricts the admin API (`net.vrypan.robby.admin.*`)
-to a list of IPs/CIDRs. It defaults to loopback only, which keeps the
+to a list of CIDRs. It defaults to loopback only, which keeps the
 local admin CLI working while making the admin API unreachable through
 a public hostname. To administer from your LAN, add its subnet:
 

@@ -28,6 +28,14 @@ type Config struct {
 	// loopback only — shuts the admin API off from the public hostname
 	// while keeping the local admin CLI working.
 	AdminNetworks []string `toml:"admin_networks"`
+
+	// adminPrefixes is AdminNetworks parsed once by Load.
+	adminPrefixes []netip.Prefix
+}
+
+// AdminPrefixes returns the parsed admin_networks allowlist.
+func (c *Config) AdminPrefixes() []netip.Prefix {
+	return c.adminPrefixes
 }
 
 func defaults() Config {
@@ -64,8 +72,12 @@ func Load(path string) (*Config, error) {
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("config %s: data_dir is required", path)
 	}
-	if _, err := cfg.AdminPrefixes(); err != nil {
-		return nil, fmt.Errorf("config %s: %w", path, err)
+	for _, s := range cfg.AdminNetworks {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, fmt.Errorf("config %s: admin_networks: %q is not a valid CIDR", path, s)
+		}
+		cfg.adminPrefixes = append(cfg.adminPrefixes, p)
 	}
 
 	changed := false
@@ -99,24 +111,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
-}
-
-// AdminPrefixes parses AdminNetworks into netip prefixes. Bare IPs are
-// accepted as single-address networks.
-func (c *Config) AdminPrefixes() ([]netip.Prefix, error) {
-	prefixes := make([]netip.Prefix, 0, len(c.AdminNetworks))
-	for _, s := range c.AdminNetworks {
-		if addr, err := netip.ParseAddr(s); err == nil {
-			prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
-			continue
-		}
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			return nil, fmt.Errorf("admin_networks: %q is not a valid IP or CIDR", s)
-		}
-		prefixes = append(prefixes, p)
-	}
-	return prefixes, nil
 }
 
 func randomHex(n int) (string, error) {
